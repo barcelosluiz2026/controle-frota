@@ -2679,7 +2679,7 @@ document.addEventListener("DOMContentLoaded", function(){
 </script>
 <script>
 
-document.getElementById("aeronaveForm").addEventListener("submit", async function(e) {
+document.getElementById("aeronaveForm").addEventListener("submit", async function(e){
 
     e.preventDefault();
 
@@ -2687,27 +2687,33 @@ document.getElementById("aeronaveForm").addEventListener("submit", async functio
     const modelo = document.getElementById("modelo").value;
     const foto = document.getElementById("iconeUrl").value;
 
-    const resposta = await fetch("/api/aeronaves", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            prefixo: prefixo,
-            modelo: modelo,
-            foto: foto
-        })
-    });
+    try {
 
-    const data = await resposta.json();
+        const response = await fetch("/api/aeronaves", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                prefixo: prefixo,
+                modelo: modelo,
+                foto: foto
+            })
+        });
 
-    console.log(data);
+        const data = await response.json();
 
-    if (data.status === "ok") {
+        console.log("Resposta API:", data);
+
         alert("Aeronave salva com sucesso!");
+
         location.reload();
-    } else {
+
+    } catch (erro) {
+
+        console.error("Erro ao salvar:", erro);
         alert("Erro ao salvar aeronave");
+
     }
 
 });
@@ -2765,4 +2771,5 @@ setTimeout(iniciarFormularioAeronave, 500);
 
 </body>
 </html>
+
 
