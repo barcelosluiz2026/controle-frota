@@ -2713,6 +2713,56 @@ document.getElementById("aeronaveForm").addEventListener("submit", async functio
 });
 
 </script>
+<script>
+
+function iniciarFormularioAeronave() {
+
+    const form = document.getElementById("aeronaveForm");
+
+    if (!form) {
+        console.log("Formulário não encontrado");
+        return;
+    }
+
+    form.addEventListener("submit", async function(e){
+
+        e.preventDefault();
+
+        const prefixo = document.getElementById("prefixo").value;
+        const modelo = document.getElementById("modelo").value;
+        const foto = document.getElementById("iconeUrl").value;
+
+        console.log("Enviando aeronave:", prefixo, modelo, foto);
+
+        const resposta = await fetch("/api/aeronaves", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                prefixo: prefixo,
+                modelo: modelo,
+                foto: foto
+            })
+        });
+
+        const data = await resposta.json();
+
+        console.log(data);
+
+        alert("Aeronave salva!");
+
+        location.reload();
+
+    });
+
+}
+
+setTimeout(iniciarFormularioAeronave, 500);
+
+</script>
+ 
 
 </body>
 </html>
+
