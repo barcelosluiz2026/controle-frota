@@ -1,149 +1,176 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, jsonify, request, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
 import os
+from datetime import datetime
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder=".", static_url_path="")
 
-# conexão com banco Render
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+# Configuração do banco de dados (Render usa DATABASE_URL)
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/controle_panes")
+if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
+CORS(app)
 
-
-# -------------------------------
-# MODELOS DO BANCO
-# -------------------------------
-
+# -----------------------------
+# MODELOS
+# -----------------------------
 class Aeronave(db.Model):
+    __tablename__ = "aeronaves"
     id = db.Column(db.Integer, primary_key=True)
     prefixo = db.Column(db.String(20), unique=True, nullable=False)
-    modelo = db.Column(db.String(100))
-    foto = db.Column(db.String(500))
+    modelo = db.Column(db.String(50), nullable=False)
+    foto = db.Column(db.String(255))
+    criado_em = db.Column(db.DateTime, default=datetime.utcnow)
+
+    panes = db.relationship("Pane", backref="aeronave", cascade="all, delete-orphan")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "prefixo": self.prefixo,
+            "modelo": self.modelo,
+            "foto": self.foto,
+            "criado_em": self.criado_em.isoformat()
+        }
 
 
 class Pane(db.Model):
+    __tablename__ = "panes"
     id = db.Column(db.Integer, primary_key=True)
-    aeronave = db.Column(db.String(50))
-    descricao = db.Column(db.Text)
+    aeronave_id = db.Column(db.Integer, db.ForeignKey("aeronaves.id"), nullable=False)
+    descricao = db.Column(db.Text, nullable=False)
+    ata = db.Column(db.String(10), nullable=False)
+    tipo = db.Column(db.String(20), nullable=False)  # mecanico / avionico
+    responsavel = db.Column(db.String(100), nullable=False)
+    foto_url = db.Column(db.String(255))
+    status = db.Column(db.String(30), default="lancada")
+    criado_em = db.Column(db.DateTime, default=datetime.utcnow)
+    criado_por = db.Column(db.String(100))
 
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "aeronave_id": self.aeronave_id,
+            "descricao": self.descricao,
+            "ata": self.ata,
+            "tipo": self.tipo,
+            "responsavel": self.responsavel,
+            "foto_url": self.foto_url,
+            "status": self.status,
+            "criado_em": self.criado_em.isoformat(),
+            "criado_por": self.criado_por
+        }
 
-# -------------------------------
-# ROTAS HTML
-# -------------------------------
-
-@app.route("/")
-def home():
-    return render_template("index.html")
-
-
-# -------------------------------
-# API AERONAVES
-# -------------------------------
+# -----------------------------
+# ROTAS DE API
+# -----------------------------
 
 @app.route("/api/aeronaves", methods=["GET"])
 def listar_aeronaves():
-
     aeronaves = Aeronave.query.all()
-
-    lista = []
-
-    for a in aeronaves:
-        lista.append({
-            "id": a.id,
-            "prefixo": a.prefixo,
-            "modelo": a.modelo,
-            "foto": a.foto
-        })
-
-    return jsonify(lista)
+    return jsonify([a.to_dict() for a in aeronaves])
 
 
 @app.route("/api/aeronaves", methods=["POST"])
 def criar_aeronave():
+    data = request.get_json()
+    if not data or "prefixo" not in data or "modelo" not in data:
+        return jsonify({"status": "erro", "mensagem": "Dados incompletos"}), 400
 
-    data = request.json
+    if Aeronave.query.filter_by(prefixo=data["prefixo"]).first():
+        return jsonify({"status": "erro", "mensagem": "Prefixo já existe"}), 400
 
-    prefixo = data.get("prefixo")
-    modelo = data.get("modelo")
-    foto = data.get("foto")
-
-    aeronave = Aeronave(
-        prefixo=prefixo,
-        modelo=modelo,
-        foto=foto
+    nova = Aeronave(
+        prefixo=data["prefixo"],
+        modelo=data["modelo"],
+        foto=data.get("foto")
     )
-
-    db.session.add(aeronave)
+    db.session.add(nova)
     db.session.commit()
+    return jsonify({"status": "ok", "aeronave": nova.to_dict()})
 
+
+@app.route("/api/aeronaves/<int:aeronave_id>", methods=["DELETE"])
+def deletar_aeronave(aeronave_id):
+    aeronave = Aeronave.query.get(aeronave_id)
+    if not aeronave:
+        return jsonify({"status": "erro", "mensagem": "Aeronave não encontrada"}), 404
+
+    db.session.delete(aeronave)
+    db.session.commit()
     return jsonify({"status": "ok"})
 
 
-# -------------------------------
-# API PANES
-# -------------------------------
-
-@app.route("/api/panes", methods=["GET", "POST"])
-def api_panes():
-
-    # LISTAR PANES
-    if request.method == "GET":
-
-        panes = Pane.query.all()
-
-        lista = []
-        for p in panes:
-            lista.append({
-                "id": p.id,
-                "aeronave": p.aeronave,
-                "descricao": p.descricao
-            })
-
-        return jsonify(lista)
+@app.route("/api/panes", methods=["GET"])
+def listar_panes():
+    panes = Pane.query.all()
+    return jsonify([p.to_dict() for p in panes])
 
 
-    # CRIAR NOVA PANE
-    if request.method == "POST":
+@app.route("/api/panes", methods=["POST"])
+def criar_pane():
+    data = request.get_json()
+    if not data or "aeronave_id" not in data or "descricao" not in data:
+        return jsonify({"status": "erro", "mensagem": "Dados incompletos"}), 400
 
-        data = request.get_json()
+    nova = Pane(
+        aeronave_id=data["aeronave_id"],
+        descricao=data["descricao"],
+        ata=data.get("ata", "00"),
+        tipo=data.get("tipo", "mecanico"),
+        responsavel=data.get("responsavel", "Desconhecido"),
+        foto_url=data.get("foto_url"),
+        status=data.get("status", "lancada"),
+        criado_por=data.get("criado_por")
+    )
+    db.session.add(nova)
+    db.session.commit()
+    return jsonify({"status": "ok", "pane": nova.to_dict()})
 
-        nova = Pane(
-            aeronave=data.get("aeronave"),
-            descricao=data.get("descricao")
-        )
 
-        db.session.add(nova)
-        db.session.commit()
+@app.route("/api/panes/<int:pane_id>", methods=["DELETE"])
+def deletar_pane(pane_id):
+    pane = Pane.query.get(pane_id)
+    if not pane:
+        return jsonify({"status": "erro", "mensagem": "Pane não encontrada"}), 404
 
-        return jsonify({"success": True})
+    db.session.delete(pane)
+    db.session.commit()
+    return jsonify({"status": "ok"})
 
-# -------------------------------
+
+@app.route("/api/panes/<int:pane_id>", methods=["PUT"])
+def atualizar_pane(pane_id):
+    pane = Pane.query.get(pane_id)
+    if not pane:
+        return jsonify({"status": "erro", "mensagem": "Pane não encontrada"}), 404
+
+    data = request.get_json()
+    for campo in ["descricao", "ata", "tipo", "responsavel", "foto_url", "status"]:
+        if campo in data:
+            setattr(pane, campo, data[campo])
+
+    db.session.commit()
+    return jsonify({"status": "ok", "pane": pane.to_dict()})
+
+# -----------------------------
+# SERVE FRONT-END
+# -----------------------------
+@app.route("/")
+def index():
+    return send_from_directory(".", "index.html")
+
+# -----------------------------
 # INICIALIZAÇÃO
-# -------------------------------
-
+# -----------------------------
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-    app.run(debug=True)
-
-# ======================
-# RESET BANCO
-# ======================
-
-@app.route("/api/reset_db")
-def reset_db():
-    db.drop_all()
-    db.create_all()
-    return "Banco recriado com sucesso!"
-
-
-
-
-
-
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
