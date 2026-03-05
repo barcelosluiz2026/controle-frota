@@ -101,10 +101,8 @@ def api_panes():
         for p in panes:
             lista.append({
                 "id": p.id,
-                "aeronave_id": p.aeronave_id,
-                "titulo": p.titulo,
-                "descricao": p.descricao,
-                "status": p.status
+                "aeronave": p.aeronave,
+                "descricao": p.descricao
             })
 
         return jsonify(lista)
@@ -116,10 +114,8 @@ def api_panes():
         data = request.get_json()
 
         nova = Pane(
-            aeronave_id=data.get("aeronave_id"),
-            titulo=data.get("titulo"),
-            descricao=data.get("descricao"),
-            status="aberta"
+            aeronave=data.get("aeronave"),
+            descricao=data.get("descricao")
         )
 
         db.session.add(nova)
@@ -146,6 +142,7 @@ def reset_db():
     db.drop_all()
     db.create_all()
     return "Banco recriado com sucesso!"
+
 
 
 
