@@ -1172,6 +1172,7 @@
            modal.classList.remove('flex');
            form.reset();
            showToast('Aeronave adicionada com sucesso!', 'success');
+           await carregarAeronaves();
          } else {
            showToast('Erro ao adicionar aeronave', 'error');
          }
@@ -1364,7 +1365,7 @@
             form.reset();
 
             showToast('Aeronave adicionada com sucesso!', 'success');
-
+            await carregarAeronaves();
             location.reload();
 
           } else {
@@ -2590,7 +2591,35 @@
         renderCurrentView();
       }
     };
+    // =============================
+// CARREGAR AERONAVES DO BACKEND
+// =============================
+async function carregarAeronaves() {
 
+  try {
+
+    const response = await fetch("/api/aeronaves");
+
+    if (!response.ok) {
+      console.error("Erro ao buscar aeronaves");
+      return;
+    }
+
+    const aeronaves = await response.json();
+
+    // Atualiza estrutura usada pelo sistema
+    currentData = aeronaves;
+
+    // Atualiza tela
+    renderCurrentView();
+
+  } catch (error) {
+
+    console.error("Erro ao carregar aeronaves:", error);
+
+  }
+
+}
     async function init() {
       if (window.dataSdk) {
         const initResult = await window.dataSdk.init(dataHandler);
@@ -2663,7 +2692,7 @@
           ])
         });
       }
-
+      await carregarAeronaves();
       renderCurrentView();
     }
 
@@ -2812,6 +2841,7 @@ setTimeout(iniciarFormularioAeronave, 500);
 
 </body>
 </html>
+
 
 
 
