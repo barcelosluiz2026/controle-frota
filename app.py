@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, render_template
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 import os
@@ -36,7 +36,7 @@ class Aeronave(db.Model):
             "prefixo": self.prefixo,
             "modelo": self.modelo,
             "foto": self.foto,
-            "criado_em": self.criado_em.isoformat()
+            "criado_em": self.criado_em.isoformat() if self.criado_em else None
         }
 
 
@@ -63,7 +63,7 @@ class Pane(db.Model):
             "responsavel": self.responsavel,
             "foto_url": self.foto_url,
             "status": self.status,
-            "criado_em": self.criado_em.isoformat(),
+            "criado_em": self.criado_em.isoformat() if self.criado_em else None,
             "criado_por": self.criado_por
         }
 
@@ -73,7 +73,7 @@ class Pane(db.Model):
 
 @app.route("/api/aeronaves", methods=["GET"])
 def listar_aeronaves():
-    aeronaves = Aeronave.query.all()
+    aeronaves = Aeronave.query.order_by(Aeronave.prefixo).all()
     return jsonify([a.to_dict() for a in aeronaves])
 
 
@@ -172,6 +172,8 @@ def home():
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
+
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
