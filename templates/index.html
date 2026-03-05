@@ -1153,24 +1153,28 @@
             return;
           }
 
-          const result = await window.dataSdk.create({
-            id: Date.now().toString(),
-            type: 'usuario',
-            username,
-            password,
-            role,
-            fullName,
-            criadoEm: new Date().toISOString()
-          });
+          const response = await fetch("/api/aeronaves", {
+  	   method: "POST",
+           headers: {
+             "Content-Type": "application/json"
+           },
+           body: JSON.stringify({
+             prefixo: prefixo,
+    	     modelo: modelo,
+             foto: iconeUrl
+           })
+         });
 
-          if (result.isOk) {
-            addUsuarioModal.classList.add('hidden');
-            addUsuarioModal.classList.remove('flex');
-            usuarioForm.reset();
-            showToast('Usuário criado com sucesso!', 'success');
-          } else {
-            showToast('Erro ao criar usuário', 'error');
-          }
+         const result = await response.json();
+
+         if (result.status === "ok") {
+           modal.classList.add('hidden');
+           modal.classList.remove('flex');
+           form.reset();
+           showToast('Aeronave adicionada com sucesso!', 'success');
+         } else {
+           showToast('Erro ao adicionar aeronave', 'error');
+         }
         });
       }
 
