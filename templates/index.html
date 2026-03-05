@@ -1341,22 +1341,36 @@
             return;
           }
 
-          const result = await window.dataSdk.create({
-            id: Date.now().toString(),
-            type: 'aeronave',
-            prefixo,
-            modelo,
-            iconeUrl: iconeUrl || IMAGENS_FUNDO[modelo] || IMAGENS_FUNDO['Outro'],
-            criadoEm: new Date().toISOString()
+          const fotoFinal = iconeUrl || IMAGENS_FUNDO[modelo] || IMAGENS_FUNDO['Outro'];
+
+          const response = await fetch("/api/aeronaves", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              prefixo: prefixo,
+              modelo: modelo,
+              foto: fotoFinal
+            })
           });
 
-          if (result.isOk) {
+          const data = await response.json();
+
+          if (data.status === "ok") {
+
             modal.classList.add('hidden');
             modal.classList.remove('flex');
             form.reset();
+
             showToast('Aeronave adicionada com sucesso!', 'success');
+
+            location.reload();
+
           } else {
+
             showToast('Erro ao adicionar aeronave', 'error');
+
           }
         });
       }
@@ -2771,5 +2785,6 @@ setTimeout(iniciarFormularioAeronave, 500);
 
 </body>
 </html>
+
 
 
