@@ -1218,7 +1218,7 @@
           
           document.getElementById('confirmDeleteUsuario').addEventListener('click', async () => {
             const result = await window.dataSdk.delete(usuario);
-            if (result.isOk) {
+            if (response.ok) {
               showToast('Usuário excluído com sucesso!', 'success');
             } else {
               showToast('Erro ao excluir usuário', 'error');
@@ -1288,7 +1288,7 @@
             }
             
             const result = await window.dataSdk.delete(aeronave);
-            if (result.isOk) {
+            if (response.ok) {
               showToast('Aeronave e todas as panes excluídas com sucesso!', 'success');
             } else {
               showToast('Erro ao excluir aeronave', 'error');
@@ -1904,21 +1904,24 @@
           const paneResponsavel = document.getElementById('paneResponsavel').value;
           const paneFotoUrl = document.getElementById('paneFotoUrl').value.trim();
 
-          const result = await window.dataSdk.create({
-            id: Date.now().toString(),
-            type: 'pane',
-            aeronaveId: selectedAeronave.id,
-            paneDescricao,
-            paneAta,
-            paneTipo,
-            paneResponsavel,
-            paneFotoUrl: paneFotoUrl || null,
-            paneStatus: 'lancada',
-            criadoEm: new Date().toISOString(),
-            criadoPor: currentUser.username
+          const response = await fetch("/api/panes", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              aeronave_id: selectedAeronave.id,
+              descricao: paneDescricao,
+              ata: paneAta,
+              tipo: paneTipo,
+              responsavel: paneResponsavel,
+              foto_url: paneFotoUrl || null,
+              status: "lancada",
+              criado_por: currentUser.username
+            })
           });
 
-          if (result.isOk) {
+          if (response.ok) {
             modal.classList.add('hidden');
             modal.classList.remove('flex');
             form.reset();
@@ -2035,23 +2038,26 @@
           };
           
           const result = await window.dataSdk.update(paneAtualizada);
-          if (result.isOk) {
+          if (response.ok) {
             const mensagem = selectedPane.paneStatus === 'aguardando_transferencia' 
               ? 'Material/Ferramenta recebido(a) via TRANSFERÊNCIA - Retornando para Em Progresso'
               : 'Material recebido via COMPRA - Retornando para Em Progresso';
             
-            await window.dataSdk.create({
-              id: Date.now().toString(),
-              type: 'etapa',
-              paneId: selectedPane.id,
-              etapaDescricao: mensagem,
-              etapaUsuario: currentUser.fullName,
-              etapaLoginUsuario: currentUser.username,
-              etapaData: new Date().toISOString(),
-              etapaFoto1: null,
-              etapaFoto2: null,
-              etapaFoto3: null,
-              criadoEm: new Date().toISOString()
+            await fetch("/api/etapas", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                pane_id: selectedPane.id,
+                descricao: mensagem,
+                usuario: currentUser.fullName,
+                login_usuario: currentUser.username,
+                data: new Date().toISOString(),
+                foto1: null,
+                foto2: null,
+                foto3: null
+              })
             });
             showToast('Pane retornou para Em Progresso!', 'success');
           } else {
@@ -2109,19 +2115,22 @@
             };
             
             const result = await window.dataSdk.update(paneAtualizada);
-            if (result.isOk) {
-              await window.dataSdk.create({
-                id: Date.now().toString(),
-                type: 'etapa',
-                paneId: selectedPane.id,
-                etapaDescricao: '✓ Pane FINALIZADA',
-                etapaUsuario: currentUser.fullName,
-                etapaLoginUsuario: currentUser.username,
-                etapaData: new Date().toISOString(),
-                etapaFoto1: null,
-                etapaFoto2: null,
-                etapaFoto3: null,
-                criadoEm: new Date().toISOString()
+            if (response.ok) {
+              await fetch("/api/etapas", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  pane_id: selectedPane.id,
+                  descricao: "✓ Pane FINALIZADA",
+                  usuario: currentUser.fullName,
+                  login_usuario: currentUser.username,
+                  data: new Date().toISOString(),
+                  foto1: null,
+                  foto2: null,
+                  foto3: null
+                })
               });
               showToast('Pane finalizada com sucesso!', 'success');
             } else {
@@ -2193,7 +2202,7 @@
           
           document.getElementById('confirmDeleteEtapa').addEventListener('click', async () => {
             const result = await window.dataSdk.delete(etapa);
-            if (result.isOk) {
+            if (response.ok) {
               showToast('Etapa excluída com sucesso!', 'success');
             } else {
               showToast('Erro ao excluir etapa', 'error');
@@ -2266,7 +2275,7 @@
           
           document.getElementById('confirmDeletePendencia').addEventListener('click', async () => {
             const result = await window.dataSdk.delete(pendencia);
-            if (result.isOk) {
+            if (response.ok) {
               const pendenciasRestantes = currentData.filter(d => d.type === 'pendencia' && d.paneId === selectedPane.id && d.id !== pendencia.id);
               if (pendenciasRestantes.length === 0 && (selectedPane.paneStatus === 'aguardando_transferencia' || selectedPane.paneStatus === 'aguardando_material')) {
                 const paneAtualizada = { 
@@ -2310,7 +2319,7 @@
           };
 
           const result = await window.dataSdk.update(etapaAtualizada);
-          if (result.isOk) {
+          if (response.ok) {
             editEtapaModal.classList.add('hidden');
             editEtapaModal.classList.remove('flex');
             editingEtapa = null;
@@ -2353,7 +2362,7 @@
           };
 
           const result = await window.dataSdk.update(pendenciaAtualizada);
-          if (result.isOk) {
+          if (response.ok) {
             editPendenciaModal.classList.add('hidden');
             editPendenciaModal.classList.remove('flex');
             editingPendencia = null;
@@ -2407,36 +2416,50 @@
           const etapaFoto2 = document.getElementById('etapaFoto2').value.trim() || null;
           const etapaFoto3 = document.getElementById('etapaFoto3').value.trim() || null;
 
-          const result = await window.dataSdk.create({
-            id: Date.now().toString(),
-            type: 'etapa',
-            paneId: selectedPane.id,
-            etapaDescricao,
-            etapaUsuario,
-            etapaLoginUsuario: currentUser.username,
-            etapaData: new Date().toISOString(),
-            etapaFoto1,
-            etapaFoto2,
-            etapaFoto3,
-            criadoEm: new Date().toISOString()
+          const response = await fetch("/api/etapas", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              pane_id: selectedPane.id,
+              descricao: etapaDescricao,
+              usuario: etapaUsuario,
+              login_usuario: currentUser.username,
+              data: new Date().toISOString(),
+              foto1: etapaFoto1 || null,
+              foto2: etapaFoto2 || null,
+              foto3: etapaFoto3 || null
+            })
           });
 
-          if (result.isOk) {
-            if (selectedPane.paneStatus === 'lancada') {
-              const paneAtualizada = { 
-                ...selectedPane, 
-                paneStatus: 'em_progresso'
-              };
-              await window.dataSdk.update(paneAtualizada);
-            }
+          if (response.ok) {
 
-            etapaModal.classList.add('hidden');
-            etapaModal.classList.remove('flex');
-            etapaForm.reset();
-            showToast('Etapa adicionada com sucesso!', 'success');
-          } else {
-            showToast('Erro ao adicionar etapa', 'error');
-          }
+            if (selectedPane.paneStatus === 'lancada') {
+
+              await fetch(`/api/panes/${selectedPane.id}`, {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  status: "em_progresso"
+                })
+              });
+
+           }
+
+           etapaModal.classList.add('hidden');
+           etapaModal.classList.remove('flex');
+           etapaForm.reset();
+
+           showToast('Etapa adicionada com sucesso!', 'success');
+
+           } else {
+
+             showToast('Erro ao adicionar etapa', 'error');
+
+           }
         });
       }
 
@@ -2523,22 +2546,26 @@
           const sms = document.getElementById('sms').value;
           const taskCard = taskCardValue;
 
-          const result = await window.dataSdk.create({
-            id: Date.now().toString(),
-            type: 'pendencia',
-            paneId: selectedPane.id,
-            tipoItem,
-            tipoAquisicao,
-            etapaUsuario,
-            etapaLoginUsuario: currentUser.username,
-            descricaoMaterial,
-            partNumber,
-            sms,
-            taskCard,
-            criadoEm: new Date().toISOString()
+          const response = await fetch("/api/pendencias", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              pane_id: selectedPane.id,
+              tipo_item: tipoItem,
+              tipo_aquisicao: tipoAquisicao,
+              usuario: etapaUsuario,
+              login_usuario: currentUser.username,
+              descricao_material: descricaoMaterial,
+              part_number: partNumber,
+              sms: sms,
+              task_card: taskCard,
+              criado_em: new Date().toISOString()
+            })
           });
 
-          if (result.isOk) {
+          if (response.ok) {
             const newStatus = tipoAquisicao === 'transferencia' ? 'aguardando_transferencia' : 'aguardando_material';
             const paneAtualizada = { 
               ...selectedPane, 
@@ -2567,7 +2594,7 @@
     async function init() {
       if (window.dataSdk) {
         const initResult = await window.dataSdk.init(dataHandler);
-        if (!initResult.isOk) {
+        if (!initResult.ok) {
           console.error("Failed to initialize data SDK");
         }
       }
@@ -2785,6 +2812,7 @@ setTimeout(iniciarFormularioAeronave, 500);
 
 </body>
 </html>
+
 
 
 
