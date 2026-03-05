@@ -127,11 +127,10 @@ def api_panes():
 # INICIALIZAÇÃO
 # -------------------------------
 
-with app.app_context():
-    db.create_all()
-
 if __name__ == "__main__":
-    app.run()
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
 
 # ======================
 # RESET BANCO
@@ -142,6 +141,7 @@ def reset_db():
     db.drop_all()
     db.create_all()
     return "Banco recriado com sucesso!"
+
 
 
 
