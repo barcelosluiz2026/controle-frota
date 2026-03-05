@@ -43,6 +43,26 @@ with app.app_context():
 def home():
     return render_template("index.html")
 
+# ----------------------------
+# Criar Aeronaves
+# ----------------------------
+
+@app.route("/api/aeronaves", methods=["POST"])
+def criar_aeronave():
+
+    data = request.json
+
+    aeronave = Aeronave(
+        prefixo=data["prefixo"],
+        modelo=data["modelo"],
+        foto=data["foto"]
+    )
+
+    db.session.add(aeronave)
+    db.session.commit()
+
+    return jsonify({"status":"ok"})
+
 
 # listar panes
 @app.route("/api/panes", methods=["GET"])
@@ -81,4 +101,5 @@ def criar_pane():
 # ----------------------------
 
 if __name__ == "__main__":
+
     app.run(host="0.0.0.0", port=5000)
