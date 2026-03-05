@@ -163,8 +163,8 @@ def atualizar_pane(pane_id):
 # SERVE FRONT-END
 # -----------------------------
 @app.route("/")
-def index():
-    return send_from_directory(".", "index.html")
+def home():
+    return render_template("index.html")
 
 # -----------------------------
 # INICIALIZAÇÃO
@@ -174,3 +174,4 @@ if __name__ == "__main__":
         db.create_all()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
