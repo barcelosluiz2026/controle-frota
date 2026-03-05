@@ -4,10 +4,9 @@ import os
 
 app = Flask(__name__)
 
-# pegar URL do banco criada no Render
+# conexão com banco Render
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# correção necessária para PostgreSQL no Render
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
@@ -17,9 +16,16 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 
-# ----------------------------
-# Modelo da tabela
-# ----------------------------
+# -------------------------------
+# MODELOS DO BANCO
+# -------------------------------
+
+class Aeronave(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    prefixo = db.Column(db.String(20), unique=True, nullable=False)
+    modelo = db.Column(db.String(100))
+    foto = db.Column(db.String(500))
+
 
 class Pane(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -27,49 +33,69 @@ class Pane(db.Model):
     descricao = db.Column(db.Text)
 
 
-# ----------------------------
-# Criar tabelas automaticamente
-# ----------------------------
-
-with app.app_context():
-    db.create_all()
-
-
-# ----------------------------
-# Rotas
-# ----------------------------
+# -------------------------------
+# ROTAS HTML
+# -------------------------------
 
 @app.route("/")
 def home():
     return render_template("index.html")
 
-# ----------------------------
-# Criar Aeronaves
-# ----------------------------
+
+# -------------------------------
+# API AERONAVES
+# -------------------------------
+
+@app.route("/api/aeronaves", methods=["GET"])
+def listar_aeronaves():
+
+    aeronaves = Aeronave.query.all()
+
+    lista = []
+
+    for a in aeronaves:
+        lista.append({
+            "id": a.id,
+            "prefixo": a.prefixo,
+            "modelo": a.modelo,
+            "foto": a.foto
+        })
+
+    return jsonify(lista)
+
 
 @app.route("/api/aeronaves", methods=["POST"])
 def criar_aeronave():
 
     data = request.json
 
+    prefixo = data.get("prefixo")
+    modelo = data.get("modelo")
+    foto = data.get("foto")
+
     aeronave = Aeronave(
-        prefixo=data["prefixo"],
-        modelo=data["modelo"],
-        foto=data["foto"]
+        prefixo=prefixo,
+        modelo=modelo,
+        foto=foto
     )
 
     db.session.add(aeronave)
     db.session.commit()
 
-    return jsonify({"status":"ok"})
+    return jsonify({"status": "ok"})
 
 
-# listar panes
+# -------------------------------
+# API PANES
+# -------------------------------
+
 @app.route("/api/panes", methods=["GET"])
 def listar_panes():
+
     panes = Pane.query.all()
 
     lista = []
+
     for p in panes:
         lista.append({
             "id": p.id,
@@ -80,14 +106,14 @@ def listar_panes():
     return jsonify(lista)
 
 
-# criar pane
 @app.route("/api/panes", methods=["POST"])
 def criar_pane():
+
     data = request.json
 
     pane = Pane(
-        aeronave=data["aeronave"],
-        descricao=data["descricao"]
+        aeronave=data.get("aeronave"),
+        descricao=data.get("descricao")
     )
 
     db.session.add(pane)
@@ -96,10 +122,13 @@ def criar_pane():
     return jsonify({"status": "ok"})
 
 
-# ----------------------------
-# iniciar servidor
-# ----------------------------
+# -------------------------------
+# INICIALIZAÇÃO
+# -------------------------------
+
+with app.app_context():
+    db.create_all()
+
 
 if __name__ == "__main__":
-
-    app.run(host="0.0.0.0", port=5000)
+    app.run()
