@@ -132,10 +132,20 @@ def api_panes():
 # -------------------------------
 
 with app.app_context():
-    db.drop_all()
     db.create_all()
 
 if __name__ == "__main__":
     app.run()
+
+# ======================
+# RESET BANCO
+# ======================
+
+@app.route("/reset_db")
+def reset_db():
+    db.drop_all()
+    db.create_all()
+    return "Banco recriado com sucesso!"
+
 
 
