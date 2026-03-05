@@ -141,11 +141,12 @@ if __name__ == "__main__":
 # RESET BANCO
 # ======================
 
-@app.route("/reset_db")
+@app.route("/api/reset_db")
 def reset_db():
     db.drop_all()
     db.create_all()
     return "Banco recriado com sucesso!"
+
 
 
 
