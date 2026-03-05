@@ -106,7 +106,9 @@ def deletar_aeronave(aeronave_id):
     db.session.commit()
     return jsonify({"status": "ok"})
 
-
+# -----------------------------
+# PANES
+# -----------------------------
 @app.route("/api/panes", methods=["GET"])
 def listar_panes():
     panes = Pane.query.all()
@@ -132,7 +134,6 @@ def criar_pane():
     db.session.add(nova)
     db.session.commit()
     return jsonify({"status": "ok", "pane": nova.to_dict()})
-
 
 @app.route("/api/panes/<int:pane_id>", methods=["DELETE"])
 def deletar_pane(pane_id):
@@ -160,6 +161,32 @@ def atualizar_pane(pane_id):
     return jsonify({"status": "ok", "pane": pane.to_dict()})
 
 # -----------------------------
+# PENDENCIAS
+# -----------------------------
+@app.route("/api/pendencias", methods=["POST"])
+def criar_pendencia():
+
+    data = request.get_json()
+
+    nova = Pendencia(
+        pane_id=data["pane_id"],
+        tipo_item=data["tipo_item"],
+        tipo_aquisicao=data["tipo_aquisicao"],
+        usuario=data["usuario"],
+        login_usuario=data["login_usuario"],
+        descricao_material=data.get("descricao_material"),
+        part_number=data.get("part_number"),
+        sms=data.get("sms"),
+        task_card=data.get("task_card"),
+        criado_em=datetime.utcnow()
+    )
+
+    db.session.add(nova)
+    db.session.commit()
+
+    return jsonify({"status": "ok"})
+
+# -----------------------------
 # SERVE FRONT-END
 # -----------------------------
 @app.route("/")
@@ -176,5 +203,6 @@ with app.app_context():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
