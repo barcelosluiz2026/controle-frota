@@ -89,38 +89,43 @@ def criar_aeronave():
 # API PANES
 # -------------------------------
 
-@app.route("/api/panes", methods=["GET"])
-def listar_panes():
+@app.route("/api/panes", methods=["GET", "POST"])
+def api_panes():
 
-    panes = Pane.query.all()
+    # LISTAR PANES
+    if request.method == "GET":
 
-    lista = []
+        panes = Pane.query.all()
 
-    for p in panes:
-        lista.append({
-            "id": p.id,
-            "aeronave": p.aeronave,
-            "descricao": p.descricao
-        })
+        lista = []
+        for p in panes:
+            lista.append({
+                "id": p.id,
+                "aeronave_id": p.aeronave_id,
+                "titulo": p.titulo,
+                "descricao": p.descricao,
+                "status": p.status
+            })
 
-    return jsonify(lista)
+        return jsonify(lista)
 
 
-@app.route("/api/panes", methods=["POST"])
-def criar_pane():
+    # CRIAR NOVA PANE
+    if request.method == "POST":
 
-    data = request.json
+        data = request.get_json()
 
-    pane = Pane(
-        aeronave=data.get("aeronave"),
-        descricao=data.get("descricao")
-    )
+        nova = Pane(
+            aeronave_id=data.get("aeronave_id"),
+            titulo=data.get("titulo"),
+            descricao=data.get("descricao"),
+            status="aberta"
+        )
 
-    db.session.add(pane)
-    db.session.commit()
+        db.session.add(nova)
+        db.session.commit()
 
-    return jsonify({"status": "ok"})
-
+        return jsonify({"success": True})
 
 # -------------------------------
 # INICIALIZAÇÃO
@@ -132,4 +137,5 @@ with app.app_context():
 
 if __name__ == "__main__":
     app.run()
+
 
