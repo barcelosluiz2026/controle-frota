@@ -1416,7 +1416,7 @@
         <html lang="pt-BR">
         <head>
           <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <meta name="viewport" content="width=device-width, ial-scale=1.0">
           <title>Relatório de Pendências Aviônicos</title>
           <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1616,7 +1616,7 @@
         <html lang="pt-BR">
         <head>
           <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <meta name="viewport" content="width=device-width, ial-scale=1.0">
           <title>${tituloRelatorio}</title>
           <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -2620,16 +2620,16 @@ async function carregarAeronaves() {
   }
 
 }
-    async function init() {
+    async function () {
       if (window.dataSdk) {
-        const initResult = await window.dataSdk.init(dataHandler);
-        if (!initResult.ok) {
-          console.error("Failed to initialize data SDK");
+        const Result = await window.dataSdk.(dataHandler);
+        if (!Result.ok) {
+          console.error("Failed to ialize data SDK");
         }
       }
 
       if (window.elementSdk) {
-        await window.elementSdk.init({
+        await window.elementSdk.({
           defaultConfig,
           onConfigChange,
           mapToCapabilities: (config) => ({
@@ -2697,6 +2697,25 @@ async function carregarAeronaves() {
     }
 
     init();
+   # ------------------------
+    const response = await fetch("/api/aeronaves");
+    const aeronaves = await response.json();
+
+    aeronaves.forEach(a => {
+
+    currentData.push({
+
+    id: a.id.toString(),
+    type: "aeronave",
+    prefixo: a.prefixo,
+    modelo: a.modelo,
+    iconeUrl: a.foto,
+    criadoEm: new Date().toISOString()
+
+    });
+
+    });
+   #-------------------------------------
   </script>
  <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9cd918f3c3e8ca97',t:'MTc3MTAzNTc0My4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>
 
@@ -2840,4 +2859,5 @@ setTimeout(iniciarFormularioAeronave, 500);
  
 
 </body>
+
 </html>
