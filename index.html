@@ -2620,7 +2620,7 @@ async function carregarAeronaves() {
   }
 
 }
-    async function () {
+    async function init() {
       if (window.dataSdk) {
         const Result = await window.dataSdk.(dataHandler);
         if (!Result.ok) {
@@ -2861,3 +2861,4 @@ setTimeout(iniciarFormularioAeronave, 500);
 </body>
 
 </html>
+
