@@ -2607,10 +2607,21 @@ async function carregarAeronaves() {
 
     const aeronaves = await response.json();
 
-    // Atualiza estrutura usada pelo sistema
-    currentData = aeronaves;
+    currentData = [];
 
-    // Atualiza tela
+    aeronaves.forEach(a => {
+
+      currentData.push({
+        id: a.id.toString(),
+        type: "aeronave",
+        prefixo: a.prefixo,
+        modelo: a.modelo,
+        iconeUrl: a.foto,
+        criadoEm: new Date().toISOString()
+      });
+
+    });
+
     renderCurrentView();
 
   } catch (error) {
@@ -2630,51 +2641,14 @@ async function carregarAeronaves() {
     }
   }
 
-  //---------------------------------------------------
-  // CARREGAR AERONAVES DO FLASK
-  //---------------------------------------------------
-
-  try {
-
-    const response = await fetch("/api/aeronaves");
-
-    if (response.ok) {
-
-      const aeronaves = await response.json();
-
-      aeronaves.forEach(a => {
-
-        currentData.push({
-          id: a.id.toString(),
-          type: "aeronave",
-          prefixo: a.prefixo,
-          modelo: a.modelo,
-          iconeUrl: a.foto,
-          criadoEm: new Date().toISOString()
-        });
-
-      });
-
-      renderAeronaves();
-
-    } else {
-      console.error("Erro ao buscar aeronaves");
-    }
-
-  } catch (erro) {
-
-    console.error("Falha na API:", erro);
-
-  }
-
-  //---------------------------------------------------
+  await carregarAeronaves();
 
   if (window.elementSdk) {
-        await window.elementSdk.init({
-          defaultConfig,
-          onConfigChange,
-          mapToCapabilities: (config) => ({
-            recolorables: [
+    await window.elementSdk.init({
+      defaultConfig,
+      onConfigChange,
+      mapToCapabilities: (config) => ({
+        recolorables: [
               {
                 get: () => config.background_color || defaultConfig.background_color,
                 set: (value) => {
@@ -2883,6 +2857,7 @@ setTimeout(iniciarFormularioAeronave, 500);
 </body>
 
 </html>
+
 
 
 
