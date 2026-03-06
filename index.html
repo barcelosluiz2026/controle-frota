@@ -2621,31 +2621,36 @@ async function carregarAeronaves() {
 
 }
     async function init() {
-      if (window.dataSdk) {
-        const Result = await window.dataSdk.(dataHandler);
-        if (!Result.ok) {
-          console.error("Failed to ialize data SDK");
-        }
-      }
-     #---------------------------------------------------
-        const response = await fetch("/api/aeronaves");
-        const aeronaves = await response.json();
 
-        aeronaves.forEach(a => {
+  if (window.dataSdk) {
+    const result = await window.dataSdk.init(dataHandler);
 
-          currentData.push({
-            id: a.id.toString(),
-            type: "aeronave",
-            prefixo: a.prefixo,
-            modelo: a.modelo,
-            iconeUrl: a.foto,
-            criadoEm: new Date().toISOString()
-          });
+    if (!result.ok) {
+      console.error("Failed to initialize data SDK");
+    }
+  }
 
-        });
-        renderAeronaves();
-     #------------------------------------
-      if (window.elementSdk) {
+  //---------------------------------------------------
+  const response = await fetch("/api/aeronaves");
+  const aeronaves = await response.json();
+
+  aeronaves.forEach(a => {
+
+    currentData.push({
+      id: a.id.toString(),
+      type: "aeronave",
+      prefixo: a.prefixo,
+      modelo: a.modelo,
+      iconeUrl: a.foto,
+      criadoEm: new Date().toISOString()
+    });
+
+  });
+
+  renderAeronaves();
+  //---------------------------------------------------
+
+  if (window.elementSdk) {
         await window.elementSdk.({
           defaultConfig,
           onConfigChange,
@@ -2859,6 +2864,7 @@ setTimeout(iniciarFormularioAeronave, 500);
 </body>
 
 </html>
+
 
 
 
