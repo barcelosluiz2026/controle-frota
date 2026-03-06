@@ -5,8 +5,11 @@ import os
 from datetime import datetime
 
 app = Flask(__name__, static_folder=".", static_url_path="")
-
 CORS(app)
+
+# -----------------------------------
+# DATABASE
+# -----------------------------------
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -18,65 +21,94 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-# -----------------------------
+# -----------------------------------
 # MODELOS
-# -----------------------------
+# -----------------------------------
 
 class Aeronave(db.Model):
+
     __tablename__ = "aeronaves"
 
     id = db.Column(db.Integer, primary_key=True)
+
     prefixo = db.Column(db.String(20), unique=True)
     modelo = db.Column(db.String(50))
     foto = db.Column(db.String(500))
+
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
 
+
 class Pane(db.Model):
+
     __tablename__ = "panes"
 
     id = db.Column(db.Integer, primary_key=True)
+
     aeronave_id = db.Column(db.Integer)
+
     descricao = db.Column(db.Text)
     ata = db.Column(db.String(10))
+
     tipo = db.Column(db.String(20))
     responsavel = db.Column(db.String(100))
+
     foto_url = db.Column(db.String(500))
+
     status = db.Column(db.String(20))
+
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
+
     criado_por = db.Column(db.String(100))
 
+
 class Etapa(db.Model):
+
     __tablename__ = "etapas"
 
     id = db.Column(db.Integer, primary_key=True)
+
     pane_id = db.Column(db.Integer)
+
     descricao = db.Column(db.Text)
+
     usuario = db.Column(db.String(100))
     login_usuario = db.Column(db.String(100))
+
     data = db.Column(db.DateTime)
+
     foto1 = db.Column(db.String(500))
     foto2 = db.Column(db.String(500))
     foto3 = db.Column(db.String(500))
 
+
 class Pendencia(db.Model):
+
     __tablename__ = "pendencias"
 
     id = db.Column(db.Integer, primary_key=True)
+
     pane_id = db.Column(db.Integer)
+
     tipo_item = db.Column(db.String(50))
     tipo_aquisicao = db.Column(db.String(50))
+
     descricao_material = db.Column(db.Text)
+
     part_number = db.Column(db.String(100))
+
     sms = db.Column(db.String(100))
     task_card = db.Column(db.String(100))
+
     usuario = db.Column(db.String(100))
 
-# -----------------------------
+
+# -----------------------------------
 # AERONAVES
-# -----------------------------
+# -----------------------------------
 
 @app.route("/api/aeronaves", methods=["GET"])
 def listar_aeronaves():
+
     aeronaves = Aeronave.query.order_by(Aeronave.prefixo).all()
 
     return jsonify([
@@ -89,8 +121,10 @@ def listar_aeronaves():
         for a in aeronaves
     ])
 
+
 @app.route("/api/aeronaves", methods=["POST"])
 def criar_aeronave():
+
     data = request.json
 
     nova = Aeronave(
@@ -104,9 +138,10 @@ def criar_aeronave():
 
     return jsonify({"status":"ok"})
 
-# -----------------------------
+
+# -----------------------------------
 # PANES
-# -----------------------------
+# -----------------------------------
 
 @app.route("/api/panes", methods=["GET"])
 def listar_panes():
@@ -115,17 +150,18 @@ def listar_panes():
 
     return jsonify([
         {
-            "id":p.id,
-            "aeronave_id":p.aeronave_id,
-            "descricao":p.descricao,
-            "ata":p.ata,
-            "tipo":p.tipo,
-            "responsavel":p.responsavel,
-            "foto_url":p.foto_url,
-            "status":p.status
+            "id": p.id,
+            "aeronave_id": p.aeronave_id,
+            "descricao": p.descricao,
+            "ata": p.ata,
+            "tipo": p.tipo,
+            "responsavel": p.responsavel,
+            "foto_url": p.foto_url,
+            "status": p.status
         }
         for p in panes
     ])
+
 
 @app.route("/api/panes", methods=["POST"])
 def criar_pane():
@@ -148,9 +184,10 @@ def criar_pane():
 
     return jsonify({"status":"ok"})
 
-# -----------------------------
+
+# -----------------------------------
 # ETAPAS
-# -----------------------------
+# -----------------------------------
 
 @app.route("/api/etapas", methods=["POST"])
 def criar_etapa():
@@ -173,9 +210,10 @@ def criar_etapa():
 
     return jsonify({"status":"ok"})
 
-# -----------------------------
+
+# -----------------------------------
 # PENDENCIAS
-# -----------------------------
+# -----------------------------------
 
 @app.route("/api/pendencias", methods=["POST"])
 def criar_pendencia():
@@ -198,21 +236,25 @@ def criar_pendencia():
 
     return jsonify({"status":"ok"})
 
-# -----------------------------
-# SERVIR HTML
-# -----------------------------
+
+# -----------------------------------
+# SERVIR FRONT-END
+# -----------------------------------
 
 @app.route("/")
 def home():
     return send_from_directory(".", "index.html")
 
-# -----------------------------
+
+# -----------------------------------
 # START
-# -----------------------------
+# -----------------------------------
 
 if __name__ == "__main__":
+
     with app.app_context():
         db.create_all()
 
     port = int(os.environ.get("PORT",5000))
+
     app.run(host="0.0.0.0", port=port)
