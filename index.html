@@ -1294,9 +1294,14 @@
 
             if (response.ok) {
               showToast('Aeronave excluída com sucesso!', 'success');
-              currentData = currentData.filter(d => d.aeronaveId !== aeronave.id && d.id !== aeronave.id);
+
+              currentData = currentData.filter(
+                d => d.id !== aeronave.id && d.aeronaveId !== aeronave.id
+              );
+
               currentView = 'home';
               renderCurrentView();
+
             } else {
               showToast('Erro ao excluir aeronave', 'error');
             }
@@ -2873,6 +2878,7 @@ setTimeout(iniciarFormularioAeronave, 500);
 </body>
 
 </html>
+
 
 
 
