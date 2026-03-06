@@ -237,4 +237,16 @@ if __name__ == "__main__":
 
     app.run(host="0.0.0.0", port=port)
 
+# ======================
+# RESET BANCO
+# ======================
+
+@app.route("/reset_db")
+def reset_db():
+    db.drop_all()
+    db.create_all()
+    return "Banco recriado com sucesso!"
+
+
+
 
