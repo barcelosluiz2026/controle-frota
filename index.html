@@ -2631,27 +2631,46 @@ async function carregarAeronaves() {
   }
 
   //---------------------------------------------------
-  const response = await fetch("/api/aeronaves");
-  const aeronaves = await response.json();
+  // CARREGAR AERONAVES DO FLASK
+  //---------------------------------------------------
 
-  aeronaves.forEach(a => {
+  try {
 
-    currentData.push({
-      id: a.id.toString(),
-      type: "aeronave",
-      prefixo: a.prefixo,
-      modelo: a.modelo,
-      iconeUrl: a.foto,
-      criadoEm: new Date().toISOString()
-    });
+    const response = await fetch("/api/aeronaves");
 
-  });
+    if (response.ok) {
 
-  renderAeronaves();
+      const aeronaves = await response.json();
+
+      aeronaves.forEach(a => {
+
+        currentData.push({
+          id: a.id.toString(),
+          type: "aeronave",
+          prefixo: a.prefixo,
+          modelo: a.modelo,
+          iconeUrl: a.foto,
+          criadoEm: new Date().toISOString()
+        });
+
+      });
+
+      renderAeronaves();
+
+    } else {
+      console.error("Erro ao buscar aeronaves");
+    }
+
+  } catch (erro) {
+
+    console.error("Falha na API:", erro);
+
+  }
+
   //---------------------------------------------------
 
   if (window.elementSdk) {
-        await window.elementSdk.({
+        await window.elementSdk.init({
           defaultConfig,
           onConfigChange,
           mapToCapabilities: (config) => ({
@@ -2864,6 +2883,7 @@ setTimeout(iniciarFormularioAeronave, 500);
 </body>
 
 </html>
+
 
 
 
