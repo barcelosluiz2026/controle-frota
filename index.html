@@ -2653,16 +2653,12 @@ async function carregarAeronaves() {
 
 }
     async function init() {
-
   if (window.dataSdk) {
     const result = await window.dataSdk.init(dataHandler);
-
     if (!result.ok) {
       console.error("Failed to initialize data SDK");
     }
   }
-
-  await carregarAeronaves();
 
   if (window.elementSdk) {
     await window.elementSdk.init({
@@ -2670,71 +2666,72 @@ async function carregarAeronaves() {
       onConfigChange,
       mapToCapabilities: (config) => ({
         recolorables: [
-              {
-                get: () => config.background_color || defaultConfig.background_color,
-                set: (value) => {
-                  config.background_color = value;
-                  window.elementSdk.setConfig({ background_color: value });
-                }
-              },
-              {
-                get: () => config.surface_color || defaultConfig.surface_color,
-                set: (value) => {
-                  config.surface_color = value;
-                  window.elementSdk.setConfig({ surface_color: value });
-                }
-              },
-              {
-                get: () => config.text_color || defaultConfig.text_color,
-                set: (value) => {
-                  config.text_color = value;
-                  window.elementSdk.setConfig({ text_color: value });
-                }
-              },
-              {
-                get: () => config.primary_action || defaultConfig.primary_action,
-                set: (value) => {
-                  config.primary_action = value;
-                  window.elementSdk.setConfig({ primary_action: value });
-                }
-              },
-              {
-                get: () => config.secondary_action || defaultConfig.secondary_action,
-                set: (value) => {
-                  config.secondary_action = value;
-                  window.elementSdk.setConfig({ secondary_action: value });
-                }
-              }
-            ],
-            borderables: [],
-            fontEditable: {
-              get: () => config.font_family || defaultConfig.font_family,
-              set: (value) => {
-                config.font_family = value;
-                window.elementSdk.setConfig({ font_family: value });
-              }
-            },
-            fontSizeable: {
-              get: () => config.font_size || defaultConfig.font_size,
-              set: (value) => {
-                config.font_size = value;
-                window.elementSdk.setConfig({ font_size: value });
-              }
+          {
+            get: () => config.background_color || defaultConfig.background_color,
+            set: (value) => {
+              config.background_color = value;
+              window.elementSdk.setConfig({ background_color: value });
             }
-          }),
-          mapToEditPanelValues: (config) => new Map([
-            ["titulo_principal", config.titulo_principal || defaultConfig.titulo_principal],
-            ["subtitulo", config.subtitulo || defaultConfig.subtitulo]
-          ])
-        });
-      }
-      await carregarAeronaves();
-      renderCurrentView();
-    }
+          },
+          {
+            get: () => config.surface_color || defaultConfig.surface_color,
+            set: (value) => {
+              config.surface_color = value;
+              window.elementSdk.setConfig({ surface_color: value });
+            }
+          },
+          {
+            get: () => config.text_color || defaultConfig.text_color,
+            set: (value) => {
+              config.text_color = value;
+              window.elementSdk.setConfig({ text_color: value });
+            }
+          },
+          {
+            get: () => config.primary_action || defaultConfig.primary_action,
+            set: (value) => {
+              config.primary_action = value;
+              window.elementSdk.setConfig({ primary_action: value });
+            }
+          },
+          {
+            get: () => config.secondary_action || defaultConfig.secondary_action,
+            set: (value) => {
+              config.secondary_action = value;
+              window.elementSdk.setConfig({ secondary_action: value });
+            }
+          }
+        ],
+        borderables: [],
+        fontEditable: {
+          get: () => config.font_family || defaultConfig.font_family,
+          set: (value) => {
+            config.font_family = value;
+            window.elementSdk.setConfig({ font_family: value });
+          }
+        },
+        fontSizeable: {
+          get: () => config.font_size || defaultConfig.font_size,
+          set: (value) => {
+            config.font_size = value;
+            window.elementSdk.setConfig({ font_size: value });
+          }
+        }
+      }),
+      mapToEditPanelValues: (config) => new Map([
+        ["titulo_principal", config.titulo_principal || defaultConfig.titulo_principal],
+        ["subtitulo", config.subtitulo || defaultConfig.subtitulo]
+      ])
+    });
+  }
 
+  await carregarAeronaves();
+  renderCurrentView();
+}
     init();
      </script>
   </body>
   </html>
+
 
 
