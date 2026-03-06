@@ -1293,10 +1293,13 @@
             });
 
             if (response.ok) {
-               showToast('Aeronave excluída com sucesso!', 'success');
-               currentData = currentData.filter(a => a.id !== aeronave.id);
-               renderAeronaves();
-}
+              showToast('Aeronave excluída com sucesso!', 'success');
+              currentData = currentData.filter(d => d.aeronaveId !== aeronave.id && d.id !== aeronave.id);
+              currentView = 'home';
+              renderCurrentView();
+            } else {
+              showToast('Erro ao excluir aeronave', 'error');
+            }
 
   // remove da lista local
               currentData = currentData.filter(d => d.aeronaveId !== aeronave.id && d.id !== aeronave.id);
@@ -1378,7 +1381,7 @@
 
             showToast('Aeronave adicionada com sucesso!', 'success');
             await carregarAeronaves();
-            currentView = 'dashboard';
+            currentView = 'home';
             renderCurrentView();
 
           } else {
@@ -2870,6 +2873,7 @@ setTimeout(iniciarFormularioAeronave, 500);
 </body>
 
 </html>
+
 
 
 
