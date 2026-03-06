@@ -1929,7 +1929,7 @@
             })
           });
 
-          if (result.ok) {
+          if (response.ok) {
             modal.classList.add('hidden');
             modal.classList.remove('flex');
             form.reset();
@@ -2441,7 +2441,7 @@
             })
           });
 
-          if (result.ok) {
+          if (response.ok) {
 
             if (selectedPane.paneStatus === 'lancada') {
 
@@ -2573,7 +2573,7 @@
             })
           });
 
-          if (result.ok) {
+          if (response.ok) {
             const newStatus = tipoAquisicao === 'transferencia' ? 'aguardando_transferencia' : 'aguardando_material';
             const paneAtualizada = { 
               ...selectedPane, 
@@ -2607,7 +2607,7 @@ async function carregarAeronaves() {
 
     const response = await fetch("/api/aeronaves");
 
-    if (!result.ok) {
+    if (!response.ok) {
       console.error("Erro ao buscar aeronaves");
       return;
     }
@@ -2864,6 +2864,7 @@ setTimeout(iniciarFormularioAeronave, 500);
 </body>
 
 </html>
+
 
 
 
