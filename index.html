@@ -1289,10 +1289,16 @@
             }
             
             const result = await window.dataSdk.delete(aeronave);
-            if (response.ok) {
+            if (result && result.ok) {
               showToast('Aeronave e todas as panes excluídas com sucesso!', 'success');
+
+  // remove da lista local
+              currentData = currentData.filter(d => d.aeronaveId !== aeronave.id && d.id !== aeronave.id);
+
+              renderCurrentView();
+
             } else {
-              showToast('Erro ao excluir aeronave', 'error');
+               showToast('Erro ao excluir aeronave', 'error');
             }
             document.body.removeChild(confirmDelete);
           });
@@ -2857,6 +2863,7 @@ setTimeout(iniciarFormularioAeronave, 500);
 </body>
 
 </html>
+
 
 
 
