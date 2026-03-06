@@ -26,81 +26,49 @@ db = SQLAlchemy(app)
 # -----------------------------------
 
 class Aeronave(db.Model):
-
     __tablename__ = "aeronaves"
-
     id = db.Column(db.Integer, primary_key=True)
-
     prefixo = db.Column(db.String(20), unique=True)
     modelo = db.Column(db.String(50))
     foto = db.Column(db.String(500))
-
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
-
 
 class Pane(db.Model):
-
     __tablename__ = "panes"
-
     id = db.Column(db.Integer, primary_key=True)
-
     aeronave_id = db.Column(db.Integer)
-
     descricao = db.Column(db.Text)
     ata = db.Column(db.String(10))
-
     tipo = db.Column(db.String(20))
     responsavel = db.Column(db.String(100))
-
     foto_url = db.Column(db.String(500))
-
-     = db.Column(db.String(20))
-
+    status = db.Column(db.String(20))
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
-
     criado_por = db.Column(db.String(100))
 
-
 class Etapa(db.Model):
-
     __tablename__ = "etapas"
-
     id = db.Column(db.Integer, primary_key=True)
-
     pane_id = db.Column(db.Integer)
-
     descricao = db.Column(db.Text)
-
     usuario = db.Column(db.String(100))
     login_usuario = db.Column(db.String(100))
-
     data = db.Column(db.DateTime)
-
     foto1 = db.Column(db.String(500))
     foto2 = db.Column(db.String(500))
     foto3 = db.Column(db.String(500))
 
-
 class Pendencia(db.Model):
-
     __tablename__ = "pendencias"
-
     id = db.Column(db.Integer, primary_key=True)
-
     pane_id = db.Column(db.Integer)
-
     tipo_item = db.Column(db.String(50))
     tipo_aquisicao = db.Column(db.String(50))
-
     descricao_material = db.Column(db.Text)
-
     part_number = db.Column(db.String(100))
-
     sms = db.Column(db.String(100))
     task_card = db.Column(db.String(100))
-
     usuario = db.Column(db.String(100))
-
 
 # -----------------------------------
 # AERONAVES
@@ -108,9 +76,7 @@ class Pendencia(db.Model):
 
 @app.route("/api/aeronaves", methods=["GET"])
 def listar_aeronaves():
-
     aeronaves = Aeronave.query.order_by(Aeronave.prefixo).all()
-
     return jsonify([
         {
             "id": a.id,
@@ -120,7 +86,6 @@ def listar_aeronaves():
         }
         for a in aeronaves
     ])
-
 
 @app.route("/api/aeronaves", methods=["POST"])
 def criar_aeronave():
@@ -271,4 +236,5 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT",5000))
 
     app.run(host="0.0.0.0", port=port)
+
 
