@@ -1288,9 +1288,15 @@
               await window.dataSdk.delete(pane);
             }
             
-            const result = await window.dataSdk.delete(aeronave);
-            if (result && result.ok) {
-              showToast('Aeronave e todas as panes excluídas com sucesso!', 'success');
+            const response = await fetch(`/api/aeronaves/${aeronave.id}`, {
+              method: "DELETE"
+            });
+
+            if (response.ok) {
+               showToast('Aeronave excluída com sucesso!', 'success');
+               currentData = currentData.filter(a => a.id !== aeronave.id);
+               renderAeronaves();
+}
 
   // remove da lista local
               currentData = currentData.filter(d => d.aeronaveId !== aeronave.id && d.id !== aeronave.id);
@@ -2864,6 +2870,7 @@ setTimeout(iniciarFormularioAeronave, 500);
 </body>
 
 </html>
+
 
 
 
