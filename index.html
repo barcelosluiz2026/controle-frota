@@ -1219,7 +1219,7 @@
           
           document.getElementById('confirmDeleteUsuario').addEventListener('click', async () => {
             const result = await window.dataSdk.delete(usuario);
-            if (response.ok) {
+            if (result.ok) {
               showToast('Usuário excluído com sucesso!', 'success');
             } else {
               showToast('Erro ao excluir usuário', 'error');
@@ -1929,7 +1929,7 @@
             })
           });
 
-          if (response.ok) {
+          if (result.ok) {
             modal.classList.add('hidden');
             modal.classList.remove('flex');
             form.reset();
@@ -2046,7 +2046,7 @@
           };
           
           const result = await window.dataSdk.update(paneAtualizada);
-          if (response.ok) {
+          if (result.ok) {
             const mensagem = selectedPane.paneStatus === 'aguardando_transferencia' 
               ? 'Material/Ferramenta recebido(a) via TRANSFERÊNCIA - Retornando para Em Progresso'
               : 'Material recebido via COMPRA - Retornando para Em Progresso';
@@ -2123,7 +2123,7 @@
             };
             
             const result = await window.dataSdk.update(paneAtualizada);
-            if (response.ok) {
+            if (result.ok) {
               await fetch("/api/etapas", {
                 method: "POST",
                 headers: {
@@ -2210,7 +2210,7 @@
           
           document.getElementById('confirmDeleteEtapa').addEventListener('click', async () => {
             const result = await window.dataSdk.delete(etapa);
-            if (response.ok) {
+            if (result.ok) {
               showToast('Etapa excluída com sucesso!', 'success');
             } else {
               showToast('Erro ao excluir etapa', 'error');
@@ -2283,7 +2283,7 @@
           
           document.getElementById('confirmDeletePendencia').addEventListener('click', async () => {
             const result = await window.dataSdk.delete(pendencia);
-            if (response.ok) {
+            if (result.ok) {
               const pendenciasRestantes = currentData.filter(d => d.type === 'pendencia' && d.paneId === selectedPane.id && d.id !== pendencia.id);
               if (pendenciasRestantes.length === 0 && (selectedPane.paneStatus === 'aguardando_transferencia' || selectedPane.paneStatus === 'aguardando_material')) {
                 const paneAtualizada = { 
@@ -2327,7 +2327,7 @@
           };
 
           const result = await window.dataSdk.update(etapaAtualizada);
-          if (response.ok) {
+          if (result.ok) {
             editEtapaModal.classList.add('hidden');
             editEtapaModal.classList.remove('flex');
             editingEtapa = null;
@@ -2370,7 +2370,7 @@
           };
 
           const result = await window.dataSdk.update(pendenciaAtualizada);
-          if (response.ok) {
+          if (result.ok) {
             editPendenciaModal.classList.add('hidden');
             editPendenciaModal.classList.remove('flex');
             editingPendencia = null;
@@ -2441,7 +2441,7 @@
             })
           });
 
-          if (response.ok) {
+          if (result.ok) {
 
             if (selectedPane.paneStatus === 'lancada') {
 
@@ -2573,7 +2573,7 @@
             })
           });
 
-          if (response.ok) {
+          if (result.ok) {
             const newStatus = tipoAquisicao === 'transferencia' ? 'aguardando_transferencia' : 'aguardando_material';
             const paneAtualizada = { 
               ...selectedPane, 
@@ -2607,7 +2607,7 @@ async function carregarAeronaves() {
 
     const response = await fetch("/api/aeronaves");
 
-    if (!response.ok) {
+    if (!result.ok) {
       console.error("Erro ao buscar aeronaves");
       return;
     }
@@ -2864,6 +2864,7 @@ setTimeout(iniciarFormularioAeronave, 500);
 </body>
 
 </html>
+
 
 
 
