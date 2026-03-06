@@ -1275,36 +1275,25 @@
           document.body.appendChild(confirmDelete);
           
           document.getElementById('confirmDeleteAeronave').addEventListener('click', async () => {
-            for (const pane of panes) {
-              const etapas = currentData.filter(d => d.type === 'etapa' && d.paneId === pane.id);
-              const pendencias = currentData.filter(d => d.type === 'pendencia' && d.paneId === pane.id);
-              
-              for (const etapa of etapas) {
-                await window.dataSdk.delete(etapa);
-              }
-              for (const pendencia of pendencias) {
-                await window.dataSdk.delete(pendencia);
-              }
-              await window.dataSdk.delete(pane);
-            }
-            
-            const response = await fetch(`/api/aeronaves/${aeronave.id}`, {
-              method: "DELETE"
-            });
+  const response = await fetch(`/api/aeronaves/${aeronave.id}`, {
+    method: "DELETE"
+  });
 
-            if (response.ok) {
-              showToast('Aeronave excluída com sucesso!', 'success');
+  if (response.ok) {
+    showToast('Aeronave excluída com sucesso!', 'success');
 
-              currentData = currentData.filter(
-                d => d.id !== aeronave.id && d.aeronaveId !== aeronave.id
-              );
+    currentData = currentData.filter(
+      d => d.id !== aeronave.id && d.aeronaveId !== aeronave.id
+    );
 
-              currentView = 'home';
-              renderCurrentView();
+    currentView = 'home';
+    renderCurrentView();
+  } else {
+    showToast('Erro ao excluir aeronave', 'error');
+  }
 
-            } else {
-              showToast('Erro ao excluir aeronave', 'error');
-            }
+  document.body.removeChild(confirmDelete);
+});
 
   // remove da lista local
               currentData = currentData.filter(d => d.aeronaveId !== aeronave.id && d.id !== aeronave.id);
@@ -2732,6 +2721,7 @@ async function carregarAeronaves() {
      </script>
   </body>
   </html>
+
 
 
 
