@@ -54,7 +54,7 @@ class Pane(db.Model):
 
     foto_url = db.Column(db.String(500))
 
-    status = db.Column(db.String(20))
+     = db.Column(db.String(20))
 
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -138,6 +138,19 @@ def criar_aeronave():
 
     return jsonify({"status":"ok"})
 
+# -----------------------------------
+# EXCLUIR AERONAVE
+# -----------------------------------
+
+@app.route("/api/aeronaves/<int:id>", methods=["DELETE"])
+def excluir_aeronave(id):
+
+    aeronave = Aeronave.query.get_or_404(id)
+
+    db.session.delete(aeronave)
+    db.session.commit()
+
+    return jsonify({"success": True})
 
 # -----------------------------------
 # PANES
@@ -258,3 +271,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT",5000))
 
     app.run(host="0.0.0.0", port=port)
+
