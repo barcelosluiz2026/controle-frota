@@ -1372,7 +1372,8 @@
 
             showToast('Aeronave adicionada com sucesso!', 'success');
             await carregarAeronaves();
-            location.reload();
+            currentView = 'dashboard';
+            renderCurrentView();
 
           } else {
 
@@ -2863,6 +2864,7 @@ setTimeout(iniciarFormularioAeronave, 500);
 </body>
 
 </html>
+
 
 
 
