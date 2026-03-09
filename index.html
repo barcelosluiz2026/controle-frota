@@ -5,9 +5,85 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Controle de Panes</title>
   <script src="/_sdk/element_sdk.js"></script>
-  <script src="/_sdk/data_sdk.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const RENDER_API_BASE = window.RENDER_API_BASE || '/api';
+
+    window.dataSdk = (() => {
+      let onDataChanged = null;
+      let cache = [];
+
+      async function request(path, options = {}) {
+        const response = await fetch(`${RENDER_API_BASE}${path}`, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(options.headers || {})
+          },
+          ...options
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => '');
+          return { isOk: false, error: errorText || `HTTP ${response.status}` };
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await response.json();
+          return { isOk: true, data };
+        }
+
+        return { isOk: true, data: null };
+      }
+
+      async function refresh() {
+        const result = await request('/records', { method: 'GET' });
+        if (result.isOk) {
+          cache = Array.isArray(result.data) ? result.data : [];
+          if (onDataChanged) onDataChanged(cache);
+        }
+        return result;
+      }
+
+      return {
+        async init(handler) {
+          onDataChanged = handler?.onDataChanged || null;
+          return await refresh();
+        },
+
+        async create(record) {
+          const result = await request('/records', {
+            method: 'POST',
+            body: JSON.stringify(record)
+          });
+          if (result.isOk) await refresh();
+          return result;
+        },
+
+        async update(record) {
+          const result = await request(`/records/${encodeURIComponent(record.id)}`, {
+            method: 'PUT',
+            body: JSON.stringify(record)
+          });
+          if (result.isOk) await refresh();
+          return result;
+        },
+
+        async delete(record) {
+          const result = await request(`/records/${encodeURIComponent(record.id)}`, {
+            method: 'DELETE'
+          });
+          if (result.isOk) await refresh();
+          return result;
+        },
+
+        async list() {
+          return { isOk: true, data: cache };
+        }
+      };
+    })();
+  </script>
   <style>
     body {
       box-sizing: border-box;
@@ -1153,29 +1229,24 @@
             return;
           }
 
-          const response = await fetch("/api/aeronaves", {
-  	   method: "POST",
-           headers: {
-             "Content-Type": "application/json"
-           },
-           body: JSON.stringify({
-             prefixo: prefixo,
-    	     modelo: modelo,
-             foto: iconeUrl
-           })
-         });
+          const result = await window.dataSdk.create({
+            id: Date.now().toString(),
+            type: 'usuario',
+            username,
+            password,
+            role,
+            fullName,
+            criadoEm: new Date().toISOString()
+          });
 
-         const result = await response.json();
-
-         if (result.status === "ok") {
-           modal.classList.add('hidden');
-           modal.classList.remove('flex');
-           form.reset();
-           showToast('Aeronave adicionada com sucesso!', 'success');
-           await carregarAeronaves();
-         } else {
-           showToast('Erro ao adicionar aeronave', 'error');
-         }
+          if (result.isOk) {
+            addUsuarioModal.classList.add('hidden');
+            addUsuarioModal.classList.remove('flex');
+            usuarioForm.reset();
+            showToast('Usuário criado com sucesso!', 'success');
+          } else {
+            showToast('Erro ao criar usuário', 'error');
+          }
         });
       }
 
@@ -1219,7 +1290,7 @@
           
           document.getElementById('confirmDeleteUsuario').addEventListener('click', async () => {
             const result = await window.dataSdk.delete(usuario);
-            if (result.ok) {
+            if (result.isOk) {
               showToast('Usuário excluído com sucesso!', 'success');
             } else {
               showToast('Erro ao excluir usuário', 'error');
@@ -1275,33 +1346,24 @@
           document.body.appendChild(confirmDelete);
           
           document.getElementById('confirmDeleteAeronave').addEventListener('click', async () => {
-  const response = await fetch(`/api/aeronaves/${aeronave.id}`, {
-    method: "DELETE"
-  });
-
-  if (response.ok) {
-    showToast('Aeronave excluída com sucesso!', 'success');
-
-    currentData = currentData.filter(
-      d => d.id !== aeronave.id && d.aeronaveId !== aeronave.id
-    );
-
-    currentView = 'home';
-    renderCurrentView();
-  } else {
-    showToast('Erro ao excluir aeronave', 'error');
-  }
-
-  document.body.removeChild(confirmDelete);
-});
-
-  // remove da lista local
-              currentData = currentData.filter(d => d.aeronaveId !== aeronave.id && d.id !== aeronave.id);
-
-              renderCurrentView();
-
+            for (const pane of panes) {
+              const etapas = currentData.filter(d => d.type === 'etapa' && d.paneId === pane.id);
+              const pendencias = currentData.filter(d => d.type === 'pendencia' && d.paneId === pane.id);
+              
+              for (const etapa of etapas) {
+                await window.dataSdk.delete(etapa);
+              }
+              for (const pendencia of pendencias) {
+                await window.dataSdk.delete(pendencia);
+              }
+              await window.dataSdk.delete(pane);
+            }
+            
+            const result = await window.dataSdk.delete(aeronave);
+            if (result.isOk) {
+              showToast('Aeronave e todas as panes excluídas com sucesso!', 'success');
             } else {
-               showToast('Erro ao excluir aeronave', 'error');
+              showToast('Erro ao excluir aeronave', 'error');
             }
             document.body.removeChild(confirmDelete);
           });
@@ -1351,37 +1413,22 @@
             return;
           }
 
-          const fotoFinal = iconeUrl || IMAGENS_FUNDO[modelo] || IMAGENS_FUNDO['Outro'];
-
-          const response = await fetch("/api/aeronaves", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              prefixo: prefixo,
-              modelo: modelo,
-              foto: fotoFinal
-            })
+          const result = await window.dataSdk.create({
+            id: Date.now().toString(),
+            type: 'aeronave',
+            prefixo,
+            modelo,
+            iconeUrl: iconeUrl || IMAGENS_FUNDO[modelo] || IMAGENS_FUNDO['Outro'],
+            criadoEm: new Date().toISOString()
           });
 
-          const data = await response.json();
-
-          if (data.status === "ok") {
-
+          if (result.isOk) {
             modal.classList.add('hidden');
             modal.classList.remove('flex');
             form.reset();
-
             showToast('Aeronave adicionada com sucesso!', 'success');
-            await carregarAeronaves();
-            currentView = 'home';
-            renderCurrentView();
-
           } else {
-
             showToast('Erro ao adicionar aeronave', 'error');
-
           }
         });
       }
@@ -1426,7 +1473,7 @@
         <html lang="pt-BR">
         <head>
           <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, ial-scale=1.0">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>Relatório de Pendências Aviônicos</title>
           <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1626,7 +1673,7 @@
         <html lang="pt-BR">
         <head>
           <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, ial-scale=1.0">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>${tituloRelatorio}</title>
           <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1915,24 +1962,21 @@
           const paneResponsavel = document.getElementById('paneResponsavel').value;
           const paneFotoUrl = document.getElementById('paneFotoUrl').value.trim();
 
-          const response = await fetch("/api/panes", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              aeronave_id: selectedAeronave.id,
-              descricao: paneDescricao,
-              ata: paneAta,
-              tipo: paneTipo,
-              responsavel: paneResponsavel,
-              foto_url: paneFotoUrl || null,
-              status: "lancada",
-              criado_por: currentUser.username
-            })
+          const result = await window.dataSdk.create({
+            id: Date.now().toString(),
+            type: 'pane',
+            aeronaveId: selectedAeronave.id,
+            paneDescricao,
+            paneAta,
+            paneTipo,
+            paneResponsavel,
+            paneFotoUrl: paneFotoUrl || null,
+            paneStatus: 'lancada',
+            criadoEm: new Date().toISOString(),
+            criadoPor: currentUser.username
           });
 
-          if (response.ok) {
+          if (result.isOk) {
             modal.classList.add('hidden');
             modal.classList.remove('flex');
             form.reset();
@@ -2049,26 +2093,23 @@
           };
           
           const result = await window.dataSdk.update(paneAtualizada);
-          if (result.ok) {
+          if (result.isOk) {
             const mensagem = selectedPane.paneStatus === 'aguardando_transferencia' 
               ? 'Material/Ferramenta recebido(a) via TRANSFERÊNCIA - Retornando para Em Progresso'
               : 'Material recebido via COMPRA - Retornando para Em Progresso';
             
-            await fetch("/api/etapas", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                pane_id: selectedPane.id,
-                descricao: mensagem,
-                usuario: currentUser.fullName,
-                login_usuario: currentUser.username,
-                data: new Date().toISOString(),
-                foto1: null,
-                foto2: null,
-                foto3: null
-              })
+            await window.dataSdk.create({
+              id: Date.now().toString(),
+              type: 'etapa',
+              paneId: selectedPane.id,
+              etapaDescricao: mensagem,
+              etapaUsuario: currentUser.fullName,
+              etapaLoginUsuario: currentUser.username,
+              etapaData: new Date().toISOString(),
+              etapaFoto1: null,
+              etapaFoto2: null,
+              etapaFoto3: null,
+              criadoEm: new Date().toISOString()
             });
             showToast('Pane retornou para Em Progresso!', 'success');
           } else {
@@ -2126,22 +2167,19 @@
             };
             
             const result = await window.dataSdk.update(paneAtualizada);
-            if (result.ok) {
-              await fetch("/api/etapas", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                  pane_id: selectedPane.id,
-                  descricao: "✓ Pane FINALIZADA",
-                  usuario: currentUser.fullName,
-                  login_usuario: currentUser.username,
-                  data: new Date().toISOString(),
-                  foto1: null,
-                  foto2: null,
-                  foto3: null
-                })
+            if (result.isOk) {
+              await window.dataSdk.create({
+                id: Date.now().toString(),
+                type: 'etapa',
+                paneId: selectedPane.id,
+                etapaDescricao: '✓ Pane FINALIZADA',
+                etapaUsuario: currentUser.fullName,
+                etapaLoginUsuario: currentUser.username,
+                etapaData: new Date().toISOString(),
+                etapaFoto1: null,
+                etapaFoto2: null,
+                etapaFoto3: null,
+                criadoEm: new Date().toISOString()
               });
               showToast('Pane finalizada com sucesso!', 'success');
             } else {
@@ -2213,7 +2251,7 @@
           
           document.getElementById('confirmDeleteEtapa').addEventListener('click', async () => {
             const result = await window.dataSdk.delete(etapa);
-            if (result.ok) {
+            if (result.isOk) {
               showToast('Etapa excluída com sucesso!', 'success');
             } else {
               showToast('Erro ao excluir etapa', 'error');
@@ -2286,7 +2324,7 @@
           
           document.getElementById('confirmDeletePendencia').addEventListener('click', async () => {
             const result = await window.dataSdk.delete(pendencia);
-            if (result.ok) {
+            if (result.isOk) {
               const pendenciasRestantes = currentData.filter(d => d.type === 'pendencia' && d.paneId === selectedPane.id && d.id !== pendencia.id);
               if (pendenciasRestantes.length === 0 && (selectedPane.paneStatus === 'aguardando_transferencia' || selectedPane.paneStatus === 'aguardando_material')) {
                 const paneAtualizada = { 
@@ -2330,7 +2368,7 @@
           };
 
           const result = await window.dataSdk.update(etapaAtualizada);
-          if (result.ok) {
+          if (result.isOk) {
             editEtapaModal.classList.add('hidden');
             editEtapaModal.classList.remove('flex');
             editingEtapa = null;
@@ -2373,7 +2411,7 @@
           };
 
           const result = await window.dataSdk.update(pendenciaAtualizada);
-          if (result.ok) {
+          if (result.isOk) {
             editPendenciaModal.classList.add('hidden');
             editPendenciaModal.classList.remove('flex');
             editingPendencia = null;
@@ -2427,50 +2465,36 @@
           const etapaFoto2 = document.getElementById('etapaFoto2').value.trim() || null;
           const etapaFoto3 = document.getElementById('etapaFoto3').value.trim() || null;
 
-          const response = await fetch("/api/etapas", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              pane_id: selectedPane.id,
-              descricao: etapaDescricao,
-              usuario: etapaUsuario,
-              login_usuario: currentUser.username,
-              data: new Date().toISOString(),
-              foto1: etapaFoto1 || null,
-              foto2: etapaFoto2 || null,
-              foto3: etapaFoto3 || null
-            })
+          const result = await window.dataSdk.create({
+            id: Date.now().toString(),
+            type: 'etapa',
+            paneId: selectedPane.id,
+            etapaDescricao,
+            etapaUsuario,
+            etapaLoginUsuario: currentUser.username,
+            etapaData: new Date().toISOString(),
+            etapaFoto1,
+            etapaFoto2,
+            etapaFoto3,
+            criadoEm: new Date().toISOString()
           });
 
-          if (response.ok) {
-
+          if (result.isOk) {
             if (selectedPane.paneStatus === 'lancada') {
+              const paneAtualizada = { 
+                ...selectedPane, 
+                paneStatus: 'em_progresso'
+              };
+              await window.dataSdk.update(paneAtualizada);
+            }
 
-              await fetch(`/api/panes/${selectedPane.id}`, {
-                method: "PUT",
-                headers: {
-                  "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                  status: "em_progresso"
-                })
-              });
-
-           }
-
-           etapaModal.classList.add('hidden');
-           etapaModal.classList.remove('flex');
-           etapaForm.reset();
-
-           showToast('Etapa adicionada com sucesso!', 'success');
-
-           } else {
-
-             showToast('Erro ao adicionar etapa', 'error');
-
-           }
+            etapaModal.classList.add('hidden');
+            etapaModal.classList.remove('flex');
+            etapaForm.reset();
+            showToast('Etapa adicionada com sucesso!', 'success');
+          } else {
+            showToast('Erro ao adicionar etapa', 'error');
+          }
         });
       }
 
@@ -2557,26 +2581,22 @@
           const sms = document.getElementById('sms').value;
           const taskCard = taskCardValue;
 
-          const response = await fetch("/api/pendencias", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              pane_id: selectedPane.id,
-              tipo_item: tipoItem,
-              tipo_aquisicao: tipoAquisicao,
-              usuario: etapaUsuario,
-              login_usuario: currentUser.username,
-              descricao_material: descricaoMaterial,
-              part_number: partNumber,
-              sms: sms,
-              task_card: taskCard,
-              criado_em: new Date().toISOString()
-            })
+          const result = await window.dataSdk.create({
+            id: Date.now().toString(),
+            type: 'pendencia',
+            paneId: selectedPane.id,
+            tipoItem,
+            tipoAquisicao,
+            etapaUsuario,
+            etapaLoginUsuario: currentUser.username,
+            descricaoMaterial,
+            partNumber,
+            sms,
+            taskCard,
+            criadoEm: new Date().toISOString()
           });
 
-          if (response.ok) {
+          if (result.isOk) {
             const newStatus = tipoAquisicao === 'transferencia' ? 'aguardando_transferencia' : 'aguardando_material';
             const paneAtualizada = { 
               ...selectedPane, 
@@ -2601,127 +2621,84 @@
         renderCurrentView();
       }
     };
-    // =============================
-// CARREGAR AERONAVES DO BACKEND
-// =============================
-async function carregarAeronaves() {
 
-  try {
-
-    const response = await fetch("/api/aeronaves");
-
-    if (!response.ok) {
-      console.error("Erro ao buscar aeronaves");
-      return;
-    }
-
-    const aeronaves = await response.json();
-
-    currentData = [];
-
-    aeronaves.forEach(a => {
-
-      currentData.push({
-        id: a.id.toString(),
-        type: "aeronave",
-        prefixo: a.prefixo,
-        modelo: a.modelo,
-        iconeUrl: a.foto,
-        criadoEm: new Date().toISOString()
-      });
-
-    });
-
-    renderCurrentView();
-
-  } catch (error) {
-
-    console.error("Erro ao carregar aeronaves:", error);
-
-  }
-
-}
     async function init() {
-  if (window.dataSdk) {
-    const result = await window.dataSdk.init(dataHandler);
-    if (!result.ok) {
-      console.error("Failed to initialize data SDK");
-    }
-  }
-
-  if (window.elementSdk) {
-    await window.elementSdk.init({
-      defaultConfig,
-      onConfigChange,
-      mapToCapabilities: (config) => ({
-        recolorables: [
-          {
-            get: () => config.background_color || defaultConfig.background_color,
-            set: (value) => {
-              config.background_color = value;
-              window.elementSdk.setConfig({ background_color: value });
-            }
-          },
-          {
-            get: () => config.surface_color || defaultConfig.surface_color,
-            set: (value) => {
-              config.surface_color = value;
-              window.elementSdk.setConfig({ surface_color: value });
-            }
-          },
-          {
-            get: () => config.text_color || defaultConfig.text_color,
-            set: (value) => {
-              config.text_color = value;
-              window.elementSdk.setConfig({ text_color: value });
-            }
-          },
-          {
-            get: () => config.primary_action || defaultConfig.primary_action,
-            set: (value) => {
-              config.primary_action = value;
-              window.elementSdk.setConfig({ primary_action: value });
-            }
-          },
-          {
-            get: () => config.secondary_action || defaultConfig.secondary_action,
-            set: (value) => {
-              config.secondary_action = value;
-              window.elementSdk.setConfig({ secondary_action: value });
-            }
-          }
-        ],
-        borderables: [],
-        fontEditable: {
-          get: () => config.font_family || defaultConfig.font_family,
-          set: (value) => {
-            config.font_family = value;
-            window.elementSdk.setConfig({ font_family: value });
-          }
-        },
-        fontSizeable: {
-          get: () => config.font_size || defaultConfig.font_size,
-          set: (value) => {
-            config.font_size = value;
-            window.elementSdk.setConfig({ font_size: value });
-          }
+      if (window.dataSdk) {
+        const initResult = await window.dataSdk.init(dataHandler);
+        if (!initResult.isOk) {
+          console.error("Failed to initialize data SDK");
         }
-      }),
-      mapToEditPanelValues: (config) => new Map([
-        ["titulo_principal", config.titulo_principal || defaultConfig.titulo_principal],
-        ["subtitulo", config.subtitulo || defaultConfig.subtitulo]
-      ])
-    });
-  }
+      }
 
-  await carregarAeronaves();
-  renderCurrentView();
-}
+      if (window.elementSdk) {
+        await window.elementSdk.init({
+          defaultConfig,
+          onConfigChange,
+          mapToCapabilities: (config) => ({
+            recolorables: [
+              {
+                get: () => config.background_color || defaultConfig.background_color,
+                set: (value) => {
+                  config.background_color = value;
+                  window.elementSdk.setConfig({ background_color: value });
+                }
+              },
+              {
+                get: () => config.surface_color || defaultConfig.surface_color,
+                set: (value) => {
+                  config.surface_color = value;
+                  window.elementSdk.setConfig({ surface_color: value });
+                }
+              },
+              {
+                get: () => config.text_color || defaultConfig.text_color,
+                set: (value) => {
+                  config.text_color = value;
+                  window.elementSdk.setConfig({ text_color: value });
+                }
+              },
+              {
+                get: () => config.primary_action || defaultConfig.primary_action,
+                set: (value) => {
+                  config.primary_action = value;
+                  window.elementSdk.setConfig({ primary_action: value });
+                }
+              },
+              {
+                get: () => config.secondary_action || defaultConfig.secondary_action,
+                set: (value) => {
+                  config.secondary_action = value;
+                  window.elementSdk.setConfig({ secondary_action: value });
+                }
+              }
+            ],
+            borderables: [],
+            fontEditable: {
+              get: () => config.font_family || defaultConfig.font_family,
+              set: (value) => {
+                config.font_family = value;
+                window.elementSdk.setConfig({ font_family: value });
+              }
+            },
+            fontSizeable: {
+              get: () => config.font_size || defaultConfig.font_size,
+              set: (value) => {
+                config.font_size = value;
+                window.elementSdk.setConfig({ font_size: value });
+              }
+            }
+          }),
+          mapToEditPanelValues: (config) => new Map([
+            ["titulo_principal", config.titulo_principal || defaultConfig.titulo_principal],
+            ["subtitulo", config.subtitulo || defaultConfig.subtitulo]
+          ])
+        });
+      }
+
+      renderCurrentView();
+    }
+
     init();
-     </script>
-  </body>
-  </html>
-
-
-
-
+  </script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9cd918f3c3e8ca97',t:'MTc3MTAzNTc0My4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
