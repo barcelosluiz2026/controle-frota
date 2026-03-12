@@ -955,14 +955,15 @@
               ` : ''}
             </div>
 
+            ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'inspetor') ? `
+              <div class="mb-4">
+                <button id="editPaneBtn" class="w-full px-6 py-3 rounded-lg font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
+                  ✏️ Editar Pane
+                </button>
+              </div>
+            ` : ''}
+
             ${currentUser && currentUser.role !== 'mecanico' && selectedPane.paneStatus !== 'finalizada' ? `
-              ${(currentUser.role === 'admin' || currentUser.role === 'inspetor') && selectedPane.paneStatus === 'lancada' ? `
-                <div class="mb-4">
-                  <button id="editPaneBtn" class="w-full px-6 py-3 rounded-lg font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
-                    ✏️ Editar Pane Lançada
-                  </button>
-                </div>
-              ` : ''}
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <button id="addEtapaBtn" class="px-6 py-3 rounded-lg font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
                   + Adicionar Etapa
@@ -1192,7 +1193,7 @@
             ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'inspetor') ? `
               <div id="editPaneModal" class="hidden fixed inset-0 items-center justify-center p-4" style="background-color: rgba(0,0,0,0.7); z-index: 1000;">
                 <div class="w-full max-w-md rounded-lg p-6 overflow-y-auto" style="background-color: ${surfaceColor}; max-height: 90%;">
-                  <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.5}px;">Editar Pane Lançada</h2>
+                  <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.5}px;">Editar Pane</h2>
                   <form id="editPaneForm">
                     <div class="mb-4">
                       <label for="editPaneDescricao" class="block mb-2" style="font-size: ${fontSize}px;">Descrição da Pane *</label>
@@ -1220,12 +1221,12 @@
                       <input type="text" id="editPaneResponsavel" required class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;">
                     </div>
                     <div class="mb-4">
-                      <label for="editPaneFotoUrl" class="block mb-2" style="font-size: ${fontSize}px;">URL da Foto (opcional)</label>
+                      <label for="editPaneFotoUrl" class="block mb-2" style="font-size: ${fontSize}px;">URL da Foto</label>
                       <input type="url" id="editPaneFotoUrl" placeholder="https://exemplo.com/foto.jpg" class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;">
                     </div>
                     <div class="flex gap-3">
                       <button type="submit" class="flex-1 px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
-                        Atualizar
+                        Salvar
                       </button>
                       <button type="button" id="cancelEditPaneBtn" class="flex-1 px-4 py-2 rounded font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize}px;">
                         Cancelar
@@ -1234,7 +1235,9 @@
                   </form>
                 </div>
               </div>
+            ` : ''}
 
+            ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'inspetor') ? `
               <div id="editEtapaModal" class="hidden fixed inset-0 items-center justify-center p-4" style="background-color: rgba(0,0,0,0.7); z-index: 1000;">
                 <div class="w-full max-w-md rounded-lg p-6 overflow-y-auto" style="background-color: ${surfaceColor}; max-height: 90%;">
                   <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.5}px;">Editar Etapa</h2>
