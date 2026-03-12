@@ -85,14 +85,26 @@
     })();
   </script>
   <style>
-    body {
-      box-sizing: border-box;
+  body {
+    box-sizing: border-box;
+  }
+
+  @keyframes alertaPiscando {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
     }
-    @media print {
-      .no-print { display: none !important; }
-      body { background: white !important; color: black !important; }
+    50% {
+      opacity: 0.45;
+      transform: scale(1.03);
     }
-  </style>
+  }
+
+  @media print {
+    .no-print { display: none !important; }
+    body { background: white !important; color: black !important; }
+  }
+</style>
   <style>@view-transition { navigation: auto; }</style>
  </head>
  <body class="h-full">
@@ -195,6 +207,9 @@
       } else if (currentView === 'home') {
         app.innerHTML = renderHome(bgColor, surfaceColor, textColor, primaryColor, secondaryColor, fontFamily, fontSize, titulo, subtitulo);
         setupHomeListeners();
+      } else if (currentView === 'dashboard') {
+        app.innerHTML = renderDashboard(bgColor, surfaceColor, textColor, primaryColor, secondaryColor, fontFamily, fontSize, titulo, subtitulo);
+        setupDashboardListeners();
       } else if (currentView === 'aeronave') {
         app.innerHTML = renderAeronaveDetail(bgColor, surfaceColor, textColor, primaryColor, secondaryColor, fontFamily, fontSize);
         setupAeronaveListeners();
@@ -279,6 +294,9 @@
                     👥 Gerenciar Usuários
                   </button>
                 ` : ''}
+                <button id="dashboardBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
+                  📊 Dashboard
+                </button>
                 <button id="logoutBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
                   🚪 Sair
                 </button>
@@ -326,6 +344,7 @@
                       ${aeronavesModelo.map(aeronave => {
                         const panes = currentData.filter(d => d.type === 'pane' && d.aeronaveId === aeronave.id);
                         const panesAbertas = panes.filter(p => p.paneStatus !== 'finalizada').length;
+                        const temPaneLancada = panes.some(p => p.paneStatus === 'lancada');
                         const fotoAeronave = aeronave.iconeUrl || IMAGENS_FUNDO[aeronave.modelo] || IMAGENS_FUNDO['Outro'];
                         
                         return `
@@ -334,23 +353,45 @@
                               <button class="delete-aeronave-btn absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center font-bold" 
                                       data-id="${aeronave.id}"
                                       style="background-color: #ef4444; color: white; font-size: ${fontSize * 1.1}px;">
-                                ×
-                              </button>
-                            ` : ''}
-                            <div class="aeronave-card cursor-pointer" data-id="${aeronave.id}">
-                              <div style="width: 100%; height: 140px; background-image: url('${fotoAeronave}'); background-size: cover; background-position: center;"></div>
-                              <div class="p-4">
-                                <h3 class="font-bold mb-1" style="font-size: ${fontSize * 1.2}px;">${aeronave.prefixo}</h3>
-                                <p style="font-size: ${fontSize * 0.9}px; opacity: 0.7; margin-bottom: 10px;">${aeronave.modelo}</p>
-                                <div class="flex items-center gap-2">
-                                  <span class="px-2 py-1 rounded-full text-sm font-semibold" style="background-color: ${panesAbertas > 0 ? '#ef4444' : '#22c55e'}; color: white; font-size: ${fontSize * 0.8}px;">
-                                    ${panesAbertas} pane${panesAbertas !== 1 ? 's' : ''} ativa${panesAbertas !== 1 ? 's' : ''}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        `;
+                               ×
+                             </button>
+                           ` : ''}
+
+                           ${temPaneLancada ? `
+                             <div
+                               style="
+                                 position: absolute;
+                                 bottom: 10px;
+                                 right: 10px;
+                                 z-index: 10;
+                                 background-color: #f59e0b;
+                                 color: #1f2937;
+                                 padding: 6px 16px;
+                                 border-radius: 999px;
+                                 font-weight: 700;
+                                 font-size: ${fontSize * 0.8}px;
+                                 box-shadow: 0 0 0 2px rgba(255,255,255,0.15);
+                                 animation: alertaPiscando 1s infinite;
+                               "
+                             >
+                               Atenção
+                             </div>
+                           ` : ''}
+
+                           <div class="aeronave-card cursor-pointer" data-id="${aeronave.id}">
+                             <div style="width: 100%; height: 140px; background-image: url('${fotoAeronave}'); background-size: cover; background-position: center;"></div>
+                             <div class="p-4">
+                               <h3 class="font-bold mb-1" style="font-size: ${fontSize * 1.2}px;">${aeronave.prefixo}</h3>
+                               <p style="font-size: ${fontSize * 0.9}px; opacity: 0.7; margin-bottom: 10px;">${aeronave.modelo}</p>
+                               <div class="flex items-center gap-2">
+                                 <span class="px-2 py-1 rounded-full text-sm font-semibold" style="background-color: ${panesAbertas > 0 ? '#ef4444' : '#22c55e'}; color: white; font-size: ${fontSize * 0.8}px;">
+                                   ${panesAbertas} pane${panesAbertas !== 1 ? 's' : ''} ativa${panesAbertas !== 1 ? 's' : ''}
+                                 </span>
+                               </div>
+                             </div>
+                           </div>
+                         </div>
+                       `;
                       }).join('')}
                     </div>
                   </div>
@@ -505,6 +546,161 @@
         </div>
       `;
     }
+
+    function renderDashboard(bgColor, surfaceColor, textColor, primaryColor, secondaryColor, fontFamily, fontSize, titulo, subtitulo) {
+      const imagemFundo = 'https://imgur.com/eSRiGVh.jpg';
+      const aeronaves = currentData.filter(d => d.type === 'aeronave');
+      const panes = currentData.filter(d => d.type === 'pane');
+      const pendencias = currentData.filter(d => d.type === 'pendencia');
+      const etapas = currentData.filter(d => d.type === 'etapa');
+
+      const panesAtivas = panes.filter(p => p.paneStatus !== 'finalizada');
+      const panesLancadas = panes.filter(p => p.paneStatus === 'lancada');
+      const panesEmProgresso = panes.filter(p => p.paneStatus === 'em_progresso');
+      const panesAguardando = panes.filter(p => p.paneStatus === 'aguardando_transferencia' || p.paneStatus === 'aguardando_material');
+      const panesFinalizadas = panes.filter(p => p.paneStatus === 'finalizada');
+      const aeronavesComPanes = new Set(panesAtivas.map(p => p.aeronaveId)).size;
+
+      const ataCounts = {};
+      panes.forEach(p => {
+        const ata = (p.paneAta || 'N/I').toString().padStart(2, '0');
+        ataCounts[ata] = (ataCounts[ata] || 0) + 1;
+      });
+      const topAta = Object.entries(ataCounts).sort((a, b) => b[1] - a[1])[0];
+
+      const panesPorAeronave = aeronaves.map(aeronave => {
+        const total = panes.filter(p => p.aeronaveId === aeronave.id).length;
+        const abertas = panes.filter(p => p.aeronaveId === aeronave.id && p.paneStatus !== 'finalizada').length;
+        return { prefixo: aeronave.prefixo, modelo: aeronave.modelo, total, abertas, id: aeronave.id };
+      }).sort((a, b) => b.total - a.total || a.prefixo.localeCompare(b.prefixo));
+
+      const lider = panesPorAeronave.find(item => item.total > 0);
+
+      const cards = [
+        { label: 'Aeronaves', value: aeronaves.length, icon: '🚁' },
+        { label: 'Com panes abertas', value: aeronavesComPanes, icon: '⚠️' },
+        { label: 'Panes lançadas', value: panesLancadas.length, icon: '📝' },
+        { label: 'Em progresso', value: panesEmProgresso.length, icon: '🛠️' },
+        { label: 'Pendências abertas', value: pendencias.length, icon: '📦' },
+        { label: 'Etapas registradas', value: etapas.length, icon: '📋' }
+      ];
+
+      return `
+        <div class="w-full h-full overflow-auto" style="background-image: url('${imagemFundo}'); background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; color: ${textColor}; font-family: ${fontFamily}, sans-serif;">
+          <div class="max-w-7xl mx-auto p-6">
+            <header class="mb-8 flex justify-between items-start flex-wrap gap-4">
+              <div>
+                <h1 class="font-bold mb-2" style="font-size: ${fontSize * 2}px;">📊 Dashboard de Manutenção</h1>
+                <p style="font-size: ${fontSize * 1.05}px; opacity: 0.8;">${titulo} • ${subtitulo}</p>
+                ${currentUser ? `
+                  <p style="font-size: ${fontSize * 0.9}px; opacity: 0.7; margin-top: 4px;">
+                    ${currentUser.fullName} - ${getRoleLabel(currentUser.role)}
+                  </p>
+                ` : ''}
+              </div>
+              <div class="flex gap-2 flex-wrap">
+                <button id="dashboardBackBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
+                  ← Voltar para Home
+                </button>
+              </div>
+            </header>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
+              ${cards.map(card => `
+                <div class="rounded-lg p-5" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
+                  <div class="flex items-center justify-between gap-4">
+                    <div>
+                      <p style="font-size: ${fontSize * 0.9}px; opacity: 0.75; margin-bottom: 8px;">${card.label}</p>
+                      <h2 class="font-bold" style="font-size: ${fontSize * 1.9}px; line-height: 1;">${card.value}</h2>
+                    </div>
+                    <div style="font-size: ${fontSize * 2}px;">${card.icon}</div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+              <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
+                <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                  <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">📈 Panes por ATA</h2>
+                  <span style="font-size: ${fontSize * 0.85}px; opacity: 0.7;">Top 10 ATAs com mais panes</span>
+                </div>
+                <div style="height: 320px;">
+                  <canvas id="dashboardAtaChart"></canvas>
+                </div>
+              </div>
+
+              <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
+                <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                  <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">🚁 Panes por Aeronave</h2>
+                  <span style="font-size: ${fontSize * 0.85}px; opacity: 0.7;">Clique para abrir a aeronave</span>
+                </div>
+                <div style="height: 320px;">
+                  <canvas id="dashboardAeronaveChart"></canvas>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              <div class="rounded-lg p-6 xl:col-span-2" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
+                <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.3}px;">📌 Resumo Operacional</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="rounded p-4" style="background-color: ${bgColor};">
+                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">ATA mais recorrente</p>
+                    <p class="font-bold" style="font-size: ${fontSize * 1.15}px;">${topAta ? `ATA ${topAta[0]} • ${topAta[1]} pane${topAta[1] !== 1 ? 's' : ''}` : 'Sem panes registradas'}</p>
+                  </div>
+                  <div class="rounded p-4" style="background-color: ${bgColor};">
+                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Aeronave com mais panes</p>
+                    <p class="font-bold" style="font-size: ${fontSize * 1.15}px;">${lider ? `${lider.prefixo} • ${lider.total} pane${lider.total !== 1 ? 's' : ''}` : 'Nenhuma pane cadastrada'}</p>
+                  </div>
+                  <div class="rounded p-4" style="background-color: ${bgColor};">
+                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Panes ativas</p>
+                    <p class="font-bold" style="font-size: ${fontSize * 1.15}px;">${panesAtivas.length}</p>
+                  </div>
+                  <div class="rounded p-4" style="background-color: ${bgColor};">
+                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Panes finalizadas</p>
+                    <p class="font-bold" style="font-size: ${fontSize * 1.15}px;">${panesFinalizadas.length}</p>
+                  </div>
+                  <div class="rounded p-4" style="background-color: ${bgColor};">
+                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Panes aguardando material / transferência</p>
+                    <p class="font-bold" style="font-size: ${fontSize * 1.15}px;">${panesAguardando.length}</p>
+                  </div>
+                  <div class="rounded p-4" style="background-color: ${bgColor};">
+                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Aeronaves sem panes abertas</p>
+                    <p class="font-bold" style="font-size: ${fontSize * 1.15}px;">${Math.max(aeronaves.length - aeronavesComPanes, 0)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
+                <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.3}px;">🏆 Top 5 Aeronaves</h2>
+                ${panesPorAeronave.filter(item => item.total > 0).length === 0 ? `
+                  <p style="font-size: ${fontSize}px; opacity: 0.7;">Nenhuma pane registrada ainda.</p>
+                ` : `
+                  <div class="space-y-3">
+                    ${panesPorAeronave.filter(item => item.total > 0).slice(0, 5).map((item, index) => `
+                      <div class="rounded p-4 cursor-pointer dashboard-aeronave-item" data-id="${item.id}" style="background-color: ${bgColor};">
+                        <div class="flex items-center justify-between gap-3">
+                          <div>
+                            <p class="font-bold" style="font-size: ${fontSize}px;">${index + 1}. ${item.prefixo}</p>
+                            <p style="font-size: ${fontSize * 0.8}px; opacity: 0.7;">${item.modelo}</p>
+                          </div>
+                          <div class="text-right">
+                            <p class="font-bold" style="font-size: ${fontSize * 1.1}px;">${item.total}</p>
+                            <p style="font-size: ${fontSize * 0.78}px; opacity: 0.7;">${item.abertas} aberta${item.abertas !== 1 ? 's' : ''}</p>
+                          </div>
+                        </div>
+                      </div>
+                    `).join('')}
+                  </div>
+                `}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
 
     function renderAeronaveDetail(bgColor, surfaceColor, textColor, primaryColor, secondaryColor, fontFamily, fontSize) {
       if (!selectedAeronave) return '';
@@ -760,7 +956,7 @@
             </div>
 
             ${currentUser && currentUser.role !== 'mecanico' && selectedPane.paneStatus !== 'finalizada' ? `
-              ${selectedPane.paneStatus === 'lancada' && (currentUser.role === 'admin' || currentUser.role === 'inspetor') ? `
+              ${(currentUser.role === 'admin' || currentUser.role === 'inspetor') && selectedPane.paneStatus === 'lancada' ? `
                 <div class="mb-4">
                   <button id="editPaneBtn" class="w-full px-6 py-3 rounded-lg font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
                     ✏️ Editar Pane Lançada
@@ -1003,15 +1199,15 @@
                       <textarea id="editPaneDescricao" required rows="3" class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;"></textarea>
                     </div>
                     <div class="mb-4">
-                      <label for="editPaneAta" class="block mb-2" style="font-size: ${fontSize}px;">ATA *</label>
-                      <input type="number" id="editPaneAta" min="1" max="99" required class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;">
+                      <label for="editPaneAta" class="block mb-2" style="font-size: ${fontSize}px;">ATA 100 (2 dígitos) *</label>
+                      <input type="text" id="editPaneAta" required pattern="[0-9]{2}" maxlength="2" class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;">
                     </div>
                     <div class="mb-4">
-                      <label class="block mb-2" style="font-size: ${fontSize}px;">Tipo da Pane *</label>
+                      <label class="block mb-2" style="font-size: ${fontSize}px;">Tipo *</label>
                       <div class="flex gap-4">
                         <label class="flex items-center gap-2">
                           <input type="radio" name="editPaneTipo" value="mecanico" required>
-                          <span style="font-size: ${fontSize}px;">🔩 Mecânico</span>
+                          <span style="font-size: ${fontSize}px;">🔧 Mecânico</span>
                         </label>
                         <label class="flex items-center gap-2">
                           <input type="radio" name="editPaneTipo" value="avionico" required>
@@ -1185,6 +1381,14 @@
       if (relatorioAvionicosBtn) {
         relatorioAvionicosBtn.addEventListener('click', () => {
           gerarRelatorioAvionicos();
+        });
+      }
+
+      const dashboardBtn = document.getElementById('dashboardBtn');
+      if (dashboardBtn) {
+        dashboardBtn.addEventListener('click', () => {
+          currentView = 'dashboard';
+          renderCurrentView();
         });
       }
 
@@ -1894,6 +2098,154 @@
       janelaRelatorio.document.close();
     }
 
+    function setupDashboardListeners() {
+      const backBtn = document.getElementById('dashboardBackBtn');
+      if (backBtn) {
+        backBtn.addEventListener('click', () => {
+          currentView = 'home';
+          renderCurrentView();
+        });
+      }
+
+      document.querySelectorAll('.dashboard-aeronave-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const aeronaveId = item.dataset.id;
+          selectedAeronave = currentData.find(d => d.type === 'aeronave' && d.id === aeronaveId) || null;
+          if (selectedAeronave) {
+            currentTab = 'lancadas';
+            currentView = 'aeronave';
+            renderCurrentView();
+          }
+        });
+      });
+
+      const config = window.elementSdk?.config || defaultConfig;
+      const textColor = config.text_color || defaultConfig.text_color;
+      const primaryColor = config.primary_action || defaultConfig.primary_action;
+      const secondaryColor = config.secondary_action || defaultConfig.secondary_action;
+      const panes = currentData.filter(d => d.type === 'pane');
+      const aeronaves = currentData.filter(d => d.type === 'aeronave');
+      const colors = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16', '#f97316', '#ec4899', '#14b8a6'];
+
+      const ataChartCanvas = document.getElementById('dashboardAtaChart');
+      if (ataChartCanvas) {
+        const counts = {};
+        panes.forEach(p => {
+          const ata = (p.paneAta || 'N/I').toString().padStart(2, '0');
+          counts[ata] = (counts[ata] || 0) + 1;
+        });
+
+        const sortedAta = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+        const labels = sortedAta.map(([ata]) => `ATA ${ata}`);
+        const data = sortedAta.map(([, total]) => total);
+        const totalAta = data.reduce((sum, value) => sum + value, 0);
+
+        new Chart(ataChartCanvas.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{
+              data,
+              backgroundColor: labels.map((_, index) => colors[index % colors.length]),
+              borderColor: '#1e293b',
+              borderWidth: 2,
+              borderRadius: 6
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    const value = context.parsed.y || 0;
+                    const pct = totalAta > 0 ? ((value / totalAta) * 100).toFixed(1) : '0.0';
+                    return `${value} pane${value !== 1 ? 's' : ''} (${pct}%)`;
+                  }
+                }
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { color: textColor, precision: 0 },
+                grid: { color: 'rgba(241,245,249,0.12)' }
+              },
+              x: {
+                ticks: { color: textColor },
+                grid: { display: false }
+              }
+            },
+          }
+        });
+      }
+
+      const aeronaveChartCanvas = document.getElementById('dashboardAeronaveChart');
+      if (aeronaveChartCanvas) {
+        const sortedAeronaves = aeronaves.map(a => ({
+          id: a.id,
+          prefixo: a.prefixo,
+          total: panes.filter(p => p.aeronaveId === a.id).length
+        })).filter(item => item.total > 0).sort((a, b) => b.total - a.total || a.prefixo.localeCompare(b.prefixo)).slice(0, 10);
+
+        new Chart(aeronaveChartCanvas.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: sortedAeronaves.map(item => item.prefixo),
+            datasets: [{
+              label: 'Panes',
+              data: sortedAeronaves.map(item => item.total),
+              backgroundColor: primaryColor,
+              borderColor: '#1e293b',
+              borderWidth: 2,
+              borderRadius: 6
+            }]
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    const value = context.parsed.x || 0;
+                    return `${value} pane${value !== 1 ? 's' : ''}`;
+                  }
+                }
+              }
+            },
+            scales: {
+              x: {
+                beginAtZero: true,
+                ticks: { color: textColor, precision: 0 },
+                grid: { color: 'rgba(241,245,249,0.12)' }
+              },
+              y: {
+                ticks: { color: textColor },
+                grid: { display: false }
+              }
+            },
+            onClick: (event, activeElements) => {
+              if (!activeElements.length) return;
+              const index = activeElements[0].index;
+              const aeronaveId = sortedAeronaves[index]?.id;
+              selectedAeronave = currentData.find(d => d.type === 'aeronave' && d.id === aeronaveId) || null;
+              if (selectedAeronave) {
+                currentTab = 'lancadas';
+                currentView = 'aeronave';
+                renderCurrentView();
+              }
+            }
+          }
+        });
+      }
+    }
+
+
     function setupAeronaveListeners() {
       const backBtn = document.getElementById('backBtn');
       if (backBtn) {
@@ -2131,64 +2483,6 @@
         });
       });
 
-      const editPaneBtn = document.getElementById('editPaneBtn');
-      if (editPaneBtn) {
-        editPaneBtn.addEventListener('click', () => {
-          if (!selectedPane || selectedPane.paneStatus !== 'lancada') return;
-
-          editingPane = { ...selectedPane };
-          const modal = document.getElementById('editPaneModal');
-          document.getElementById('editPaneDescricao').value = editingPane.paneDescricao || '';
-          document.getElementById('editPaneAta').value = editingPane.paneAta || '';
-          document.querySelector(`input[name="editPaneTipo"][value="${editingPane.paneTipo}"]`).checked = true;
-          document.getElementById('editPaneResponsavel').value = editingPane.paneResponsavel || '';
-          document.getElementById('editPaneFotoUrl').value = editingPane.paneFotoUrl || '';
-
-          modal.classList.remove('hidden');
-          modal.classList.add('flex');
-        });
-      }
-
-      const editPaneForm = document.getElementById('editPaneForm');
-      const cancelEditPaneBtn = document.getElementById('cancelEditPaneBtn');
-      const editPaneModal = document.getElementById('editPaneModal');
-
-      if (editPaneForm) {
-        editPaneForm.addEventListener('submit', async (e) => {
-          e.preventDefault();
-
-          if (!editingPane) return;
-
-          const paneAtualizada = {
-            ...editingPane,
-            paneDescricao: document.getElementById('editPaneDescricao').value,
-            paneAta: document.getElementById('editPaneAta').value.padStart(2, '0'),
-            paneTipo: document.querySelector('input[name="editPaneTipo"]:checked')?.value,
-            paneResponsavel: document.getElementById('editPaneResponsavel').value,
-            paneFotoUrl: document.getElementById('editPaneFotoUrl').value.trim() || null
-          };
-
-          const result = await window.dataSdk.update(paneAtualizada);
-          if (result.isOk) {
-            selectedPane = paneAtualizada;
-            editingPane = null;
-            editPaneModal.classList.add('hidden');
-            editPaneModal.classList.remove('flex');
-            showToast('Pane lançada atualizada com sucesso!', 'success');
-          } else {
-            showToast('Erro ao atualizar pane', 'error');
-          }
-        });
-      }
-
-      if (cancelEditPaneBtn && editPaneModal) {
-        cancelEditPaneBtn.addEventListener('click', () => {
-          editingPane = null;
-          editPaneModal.classList.add('hidden');
-          editPaneModal.classList.remove('flex');
-        });
-      }
-
       const retornarProgressoBtn = document.getElementById('retornarProgressoBtn');
       if (retornarProgressoBtn) {
         retornarProgressoBtn.addEventListener('click', async () => {
@@ -2304,6 +2598,63 @@
           document.getElementById('cancelFinalizarBtn').addEventListener('click', () => {
             document.body.removeChild(confirmModal);
           });
+        });
+      }
+
+      const editPaneBtn = document.getElementById('editPaneBtn');
+      const editPaneForm = document.getElementById('editPaneForm');
+      const cancelEditPaneBtn = document.getElementById('cancelEditPaneBtn');
+      const editPaneModal = document.getElementById('editPaneModal');
+
+      if (editPaneBtn && editPaneModal) {
+        editPaneBtn.addEventListener('click', () => {
+          editingPane = selectedPane;
+          document.getElementById('editPaneDescricao').value = selectedPane.paneDescricao || '';
+          document.getElementById('editPaneAta').value = (selectedPane.paneAta || '').toString().padStart(2, '0');
+          const tipoInput = document.querySelector(`input[name="editPaneTipo"][value="${selectedPane.paneTipo}"]`);
+          if (tipoInput) tipoInput.checked = true;
+          document.getElementById('editPaneResponsavel').value = selectedPane.paneResponsavel || '';
+          document.getElementById('editPaneFotoUrl').value = selectedPane.paneFotoUrl || '';
+          editPaneModal.classList.remove('hidden');
+          editPaneModal.classList.add('flex');
+        });
+      }
+
+      if (editPaneForm) {
+        editPaneForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+
+          if (!editingPane) return;
+
+          const paneAtualizada = {
+            ...editingPane,
+            paneDescricao: document.getElementById('editPaneDescricao').value,
+            paneAta: document.getElementById('editPaneAta').value.padStart(2, '0'),
+            paneTipo: document.querySelector('input[name="editPaneTipo"]:checked')?.value,
+            paneResponsavel: document.getElementById('editPaneResponsavel').value,
+            paneFotoUrl: document.getElementById('editPaneFotoUrl').value.trim() || null,
+            modificadoEm: new Date().toISOString(),
+            modificadoPor: currentUser.username
+          };
+
+          const result = await window.dataSdk.update(paneAtualizada);
+          if (result.isOk) {
+            selectedPane = paneAtualizada;
+            editingPane = null;
+            editPaneModal.classList.add('hidden');
+            editPaneModal.classList.remove('flex');
+            showToast('Pane atualizada com sucesso!', 'success');
+          } else {
+            showToast('Erro ao atualizar pane', 'error');
+          }
+        });
+      }
+
+      if (cancelEditPaneBtn) {
+        cancelEditPaneBtn.addEventListener('click', () => {
+          editPaneModal.classList.add('hidden');
+          editPaneModal.classList.remove('flex');
+          editingPane = null;
         });
       }
 
