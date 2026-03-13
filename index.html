@@ -437,22 +437,22 @@
                 <div class="w-full max-w-3xl rounded-lg p-6 my-8" style="background-color: ${surfaceColor};">
 
                   <div style="position: sticky; top: 0; z-index: 20; background-color: ${surfaceColor}; padding-top: 8px; padding-bottom: 12px; margin-bottom: 12px;">
-  <div class="flex justify-between items-center mb-4">
-    <h2 class="font-bold" style="font-size: ${fontSize * 1.5}px;">👥 Gerenciar Usuários</h2>
-    <button id="closeUsuariosBtn" class="px-3 py-1 rounded" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize}px;">✖</button>
-  </div>
+                    <div class="flex justify-between items-center mb-4">
+                      <h2 class="font-bold" style="font-size: ${fontSize * 1.5}px;">👥 Gerenciar Usuários</h2>
+                      <button id="closeUsuariosBtn" class="px-3 py-1 rounded" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize}px;">✖</button>
+                    </div>
 
-  <div>
-    <button id="addUsuarioBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
-      + Novo Usuário
-    </button>
-  </div>
-</div>
+                    <div>
+                      <button id="addUsuarioBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
+                        + Novo Usuário
+                      </button>
+                    </div>
+                  </div>
 
-<div id="usuariosList" class="space-y-3" style="margin-top: 8px;">
-  ${currentData.filter(d => d.type === 'usuario').map(usuario => `
-    <div class="rounded p-4 flex justify-between items-center" style="background-color: ${bgColor};">
-      <div>
+                  <div id="usuariosList" class="space-y-3" style="margin-top: 8px;">
+                    ${currentData.filter(d => d.type === 'usuario').map(usuario => `
+                      <div class="rounded p-4 flex justify-between items-center" style="background-color: ${bgColor};">
+                        <div>
                           <h3 class="font-bold" style="font-size: ${fontSize * 1.1}px;">${usuario.fullName}</h3>
                           <p style="font-size: ${fontSize * 0.9}px; opacity: 0.7;">Login: ${usuario.username}</p>
                           <p style="font-size: ${fontSize * 0.85}px; opacity: 0.6;">${getRoleLabel(usuario.role)}</p>
