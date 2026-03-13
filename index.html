@@ -129,6 +129,7 @@
     let selectedAta = null;
     let currentUser = null;
     let currentTab = 'lancadas';
+    let dashboardPeriod = 'all';
     let editingEtapa = null;
     let editingPendencia = null;
     let editingPane = null;
@@ -554,58 +555,117 @@
       const pendencias = currentData.filter(d => d.type === 'pendencia');
       const etapas = currentData.filter(d => d.type === 'etapa');
 
-      const panesAtivas = panes.filter(p => p.paneStatus !== 'finalizada');
-      const panesLancadas = panes.filter(p => p.paneStatus === 'lancada');
-      const panesEmProgresso = panes.filter(p => p.paneStatus === 'em_progresso');
-      const panesAguardando = panes.filter(p => p.paneStatus === 'aguardando_transferencia' || p.paneStatus === 'aguardando_material');
-      const panesFinalizadas = panes.filter(p => p.paneStatus === 'finalizada');
+      const now = new Date();
+      const startDate = new Date(now);
+      if (dashboardPeriod === '7d') {
+        startDate.setDate(now.getDate() - 7);
+      } else if (dashboardPeriod === '30d') {
+        startDate.setDate(now.getDate() - 30);
+      }
+
+      const isWithinPeriod = (dateValue) => {
+        if (dashboardPeriod === 'all') return true;
+        if (!dateValue) return false;
+        const date = new Date(dateValue);
+        if (isNaN(date.getTime())) return false;
+        return date >= startDate;
+      };
+
+      const panesFiltradas = panes.filter(p => isWithinPeriod(p.criadoEm));
+      const paneIdsFiltradas = new Set(panesFiltradas.map(p => p.id));
+      const pendenciasFiltradas = pendencias.filter(p => paneIdsFiltradas.has(p.paneId) || isWithinPeriod(p.criadoEm));
+      const etapasFiltradas = etapas.filter(e => paneIdsFiltradas.has(e.paneId) || isWithinPeriod(e.etapaData) || isWithinPeriod(e.criadoEm));
+
+      const panesAtivas = panesFiltradas.filter(p => p.paneStatus !== 'finalizada');
+      const panesLancadas = panesFiltradas.filter(p => p.paneStatus === 'lancada');
+      const panesEmProgresso = panesFiltradas.filter(p => p.paneStatus === 'em_progresso');
+      const panesAguardando = panesFiltradas.filter(p => p.paneStatus === 'aguardando_transferencia' || p.paneStatus === 'aguardando_material');
+      const panesFinalizadas = panesFiltradas.filter(p => p.paneStatus === 'finalizada');
+      const panesTransferencia = panesFiltradas.filter(p => p.paneStatus === 'aguardando_transferencia');
+      const panesMaterial = panesFiltradas.filter(p => p.paneStatus === 'aguardando_material');
       const aeronavesComPanes = new Set(panesAtivas.map(p => p.aeronaveId)).size;
 
       const ataCounts = {};
-      panes.forEach(p => {
+      panesFiltradas.forEach(p => {
         const ata = (p.paneAta || 'N/I').toString().padStart(2, '0');
         ataCounts[ata] = (ataCounts[ata] || 0) + 1;
       });
       const topAta = Object.entries(ataCounts).sort((a, b) => b[1] - a[1])[0];
 
       const panesPorAeronave = aeronaves.map(aeronave => {
-        const total = panes.filter(p => p.aeronaveId === aeronave.id).length;
-        const abertas = panes.filter(p => p.aeronaveId === aeronave.id && p.paneStatus !== 'finalizada').length;
-        return { prefixo: aeronave.prefixo, modelo: aeronave.modelo, total, abertas, id: aeronave.id };
-      }).sort((a, b) => b.total - a.total || a.prefixo.localeCompare(b.prefixo));
+        const total = panesFiltradas.filter(p => p.aeronaveId === aeronave.id).length;
+        const abertas = panesFiltradas.filter(p => p.aeronaveId === aeronave.id && p.paneStatus !== 'finalizada').length;
+        const lancadas = panesFiltradas.filter(p => p.aeronaveId === aeronave.id && p.paneStatus === 'lancada').length;
+        return { prefixo: aeronave.prefixo, modelo: aeronave.modelo, total, abertas, lancadas, id: aeronave.id };
+      }).sort((a, b) => b.total - a.total || b.abertas - a.abertas || a.prefixo.localeCompare(b.prefixo));
 
       const lider = panesPorAeronave.find(item => item.total > 0);
+      const aeronavesCriticas = panesPorAeronave.filter(item => item.abertas > 0).slice(0, 5);
+
+      const aquisicaoCounts = { compra: 0, transferencia: 0, ferramenta: 0, material: 0 };
+      pendenciasFiltradas.forEach(p => {
+        if (p.tipoAquisicao === 'compra') aquisicaoCounts.compra += 1;
+        if (p.tipoAquisicao === 'transferencia') aquisicaoCounts.transferencia += 1;
+        if (p.tipoItem === 'ferramenta') aquisicaoCounts.ferramenta += 1;
+        if (p.tipoItem === 'material') aquisicaoCounts.material += 1;
+      });
+
+      const panesMensaisMap = {};
+      panes.forEach(p => {
+        if (!p.criadoEm) return;
+        const date = new Date(p.criadoEm);
+        if (isNaN(date.getTime())) return;
+        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        panesMensaisMap[key] = (panesMensaisMap[key] || 0) + 1;
+      });
+      const panesMensais = Object.entries(panesMensaisMap)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .slice(-6)
+        .map(([mes, total]) => ({
+          mes: new Date(`${mes}-01T00:00:00`).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
+          total
+        }));
 
       const cards = [
         { label: 'Aeronaves', value: aeronaves.length, icon: '🚁' },
         { label: 'Com panes abertas', value: aeronavesComPanes, icon: '⚠️' },
         { label: 'Panes lançadas', value: panesLancadas.length, icon: '📝' },
         { label: 'Em progresso', value: panesEmProgresso.length, icon: '🛠️' },
-        { label: 'Pendências abertas', value: pendencias.length, icon: '📦' },
-        { label: 'Etapas registradas', value: etapas.length, icon: '📋' }
+        { label: 'Pendências abertas', value: pendenciasFiltradas.length, icon: '📦' },
+        { label: 'Etapas registradas', value: etapasFiltradas.length, icon: '📋' },
+        { label: 'Aguard. material', value: panesMaterial.length, icon: '📦' },
+        { label: 'Aguard. transf.', value: panesTransferencia.length, icon: '🔄' }
       ];
+
+      const periodoLabel = dashboardPeriod === '7d' ? 'Últimos 7 dias' : dashboardPeriod === '30d' ? 'Últimos 30 dias' : 'Todo o histórico';
 
       return `
         <div class="w-full h-full overflow-auto" style="background-image: url('${imagemFundo}'); background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; color: ${textColor}; font-family: ${fontFamily}, sans-serif;">
           <div class="max-w-7xl mx-auto p-6">
             <header class="mb-8 flex justify-between items-start flex-wrap gap-4">
               <div>
-                <h1 class="font-bold mb-2" style="font-size: ${fontSize * 2}px;">📊 Dashboard de Manutenção</h1>
+                <h1 class="font-bold mb-2" style="font-size: ${fontSize * 2}px;">📊 Dashboard de Manutenção V2</h1>
                 <p style="font-size: ${fontSize * 1.05}px; opacity: 0.8;">${titulo} • ${subtitulo}</p>
                 ${currentUser ? `
                   <p style="font-size: ${fontSize * 0.9}px; opacity: 0.7; margin-top: 4px;">
                     ${currentUser.fullName} - ${getRoleLabel(currentUser.role)}
                   </p>
                 ` : ''}
+                <p style="font-size: ${fontSize * 0.85}px; opacity: 0.75; margin-top: 6px;">Período analisado: ${periodoLabel}</p>
               </div>
-              <div class="flex gap-2 flex-wrap">
+              <div class="flex gap-2 flex-wrap items-center">
+                <select id="dashboardPeriodFilter" class="px-4 py-2 rounded font-semibold" style="background-color: ${surfaceColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize * 0.9}px;">
+                  <option value="all" ${dashboardPeriod === 'all' ? 'selected' : ''}>Todo histórico</option>
+                  <option value="30d" ${dashboardPeriod === '30d' ? 'selected' : ''}>Últimos 30 dias</option>
+                  <option value="7d" ${dashboardPeriod === '7d' ? 'selected' : ''}>Últimos 7 dias</option>
+                </select>
                 <button id="dashboardBackBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
                   ← Voltar para Home
                 </button>
               </div>
             </header>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
               ${cards.map(card => `
                 <div class="rounded-lg p-5" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
                   <div class="flex items-center justify-between gap-4">
@@ -623,7 +683,7 @@
               <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
                 <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
                   <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">📈 Panes por ATA</h2>
-                  <span style="font-size: ${fontSize * 0.85}px; opacity: 0.7;">Top 10 ATAs com mais panes</span>
+                  <span style="font-size: ${fontSize * 0.85}px; opacity: 0.7;">Top 10 ATAs do período</span>
                 </div>
                 <div style="height: 320px;">
                   <canvas id="dashboardAtaChart"></canvas>
@@ -637,6 +697,38 @@
                 </div>
                 <div style="height: 320px;">
                   <canvas id="dashboardAeronaveChart"></canvas>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
+              <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
+                <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                  <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">📌 Status das Panes</h2>
+                  <span style="font-size: ${fontSize * 0.85}px; opacity: 0.7;">Distribuição do período</span>
+                </div>
+                <div style="height: 300px;">
+                  <canvas id="dashboardStatusChart"></canvas>
+                </div>
+              </div>
+
+              <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
+                <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                  <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">📦 Pendências</h2>
+                  <span style="font-size: ${fontSize * 0.85}px; opacity: 0.7;">Aquisição e tipo</span>
+                </div>
+                <div style="height: 300px;">
+                  <canvas id="dashboardPendenciaChart"></canvas>
+                </div>
+              </div>
+
+              <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
+                <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                  <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">📅 Tendência Mensal</h2>
+                  <span style="font-size: ${fontSize * 0.85}px; opacity: 0.7;">Últimos 6 meses</span>
+                </div>
+                <div style="height: 300px;">
+                  <canvas id="dashboardTrendChart"></canvas>
                 </div>
               </div>
             </div>
@@ -673,21 +765,21 @@
               </div>
 
               <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
-                <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.3}px;">🏆 Top 5 Aeronaves</h2>
-                ${panesPorAeronave.filter(item => item.total > 0).length === 0 ? `
-                  <p style="font-size: ${fontSize}px; opacity: 0.7;">Nenhuma pane registrada ainda.</p>
+                <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.3}px;">⚠️ Aeronaves Críticas</h2>
+                ${aeronavesCriticas.length === 0 ? `
+                  <p style="font-size: ${fontSize}px; opacity: 0.7;">Nenhuma aeronave com pane aberta no período.</p>
                 ` : `
                   <div class="space-y-3">
-                    ${panesPorAeronave.filter(item => item.total > 0).slice(0, 5).map((item, index) => `
-                      <div class="rounded p-4 cursor-pointer dashboard-aeronave-item" data-id="${item.id}" style="background-color: ${bgColor};">
+                    ${aeronavesCriticas.map((item, index) => `
+                      <div class="rounded p-4 cursor-pointer dashboard-aeronave-item" data-id="${item.id}" style="background-color: ${bgColor}; border-left: 4px solid ${index === 0 ? '#ef4444' : primaryColor};">
                         <div class="flex items-center justify-between gap-3">
                           <div>
                             <p class="font-bold" style="font-size: ${fontSize}px;">${index + 1}. ${item.prefixo}</p>
                             <p style="font-size: ${fontSize * 0.8}px; opacity: 0.7;">${item.modelo}</p>
                           </div>
                           <div class="text-right">
-                            <p class="font-bold" style="font-size: ${fontSize * 1.1}px;">${item.total}</p>
-                            <p style="font-size: ${fontSize * 0.78}px; opacity: 0.7;">${item.abertas} aberta${item.abertas !== 1 ? 's' : ''}</p>
+                            <p class="font-bold" style="font-size: ${fontSize * 1.1}px;">${item.abertas}</p>
+                            <p style="font-size: ${fontSize * 0.78}px; opacity: 0.7;">aberta${item.abertas !== 1 ? 's' : ''}</p>
                           </div>
                         </div>
                       </div>
@@ -956,8 +1048,8 @@
             </div>
 
             ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'inspetor') ? `
-              <div class="mb-4">
-                <button id="editPaneBtn" class="w-full px-6 py-3 rounded-lg font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
+              <div class="mb-4 flex justify-end">
+                <button id="editPaneBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
                   ✏️ Editar Pane
                 </button>
               </div>
@@ -2110,6 +2202,14 @@
         });
       }
 
+      const periodFilter = document.getElementById('dashboardPeriodFilter');
+      if (periodFilter) {
+        periodFilter.addEventListener('change', () => {
+          dashboardPeriod = periodFilter.value;
+          renderCurrentView();
+        });
+      }
+
       document.querySelectorAll('.dashboard-aeronave-item').forEach(item => {
         item.addEventListener('click', () => {
           const aeronaveId = item.dataset.id;
@@ -2125,15 +2225,35 @@
       const config = window.elementSdk?.config || defaultConfig;
       const textColor = config.text_color || defaultConfig.text_color;
       const primaryColor = config.primary_action || defaultConfig.primary_action;
-      const secondaryColor = config.secondary_action || defaultConfig.secondary_action;
       const panes = currentData.filter(d => d.type === 'pane');
+      const pendencias = currentData.filter(d => d.type === 'pendencia');
       const aeronaves = currentData.filter(d => d.type === 'aeronave');
       const colors = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16', '#f97316', '#ec4899', '#14b8a6'];
+
+      const now = new Date();
+      const startDate = new Date(now);
+      if (dashboardPeriod === '7d') {
+        startDate.setDate(now.getDate() - 7);
+      } else if (dashboardPeriod === '30d') {
+        startDate.setDate(now.getDate() - 30);
+      }
+
+      const isWithinPeriod = (dateValue) => {
+        if (dashboardPeriod === 'all') return true;
+        if (!dateValue) return false;
+        const date = new Date(dateValue);
+        if (isNaN(date.getTime())) return false;
+        return date >= startDate;
+      };
+
+      const panesFiltradas = panes.filter(p => isWithinPeriod(p.criadoEm));
+      const paneIdsFiltradas = new Set(panesFiltradas.map(p => p.id));
+      const pendenciasFiltradas = pendencias.filter(p => paneIdsFiltradas.has(p.paneId) || isWithinPeriod(p.criadoEm));
 
       const ataChartCanvas = document.getElementById('dashboardAtaChart');
       if (ataChartCanvas) {
         const counts = {};
-        panes.forEach(p => {
+        panesFiltradas.forEach(p => {
           const ata = (p.paneAta || 'N/I').toString().padStart(2, '0');
           counts[ata] = (counts[ata] || 0) + 1;
         });
@@ -2180,7 +2300,7 @@
                 ticks: { color: textColor },
                 grid: { display: false }
               }
-            },
+            }
           }
         });
       }
@@ -2190,7 +2310,7 @@
         const sortedAeronaves = aeronaves.map(a => ({
           id: a.id,
           prefixo: a.prefixo,
-          total: panes.filter(p => p.aeronaveId === a.id).length
+          total: panesFiltradas.filter(p => p.aeronaveId === a.id).length
         })).filter(item => item.total > 0).sort((a, b) => b.total - a.total || a.prefixo.localeCompare(b.prefixo)).slice(0, 10);
 
         new Chart(aeronaveChartCanvas.getContext('2d'), {
@@ -2241,6 +2361,140 @@
                 currentTab = 'lancadas';
                 currentView = 'aeronave';
                 renderCurrentView();
+              }
+            }
+          }
+        });
+      }
+
+      const statusChartCanvas = document.getElementById('dashboardStatusChart');
+      if (statusChartCanvas) {
+        const statusLabels = ['Lançadas', 'Em progresso', 'Aguard. material', 'Aguard. transf.', 'Finalizadas'];
+        const statusData = [
+          panesFiltradas.filter(p => p.paneStatus === 'lancada').length,
+          panesFiltradas.filter(p => p.paneStatus === 'em_progresso').length,
+          panesFiltradas.filter(p => p.paneStatus === 'aguardando_material').length,
+          panesFiltradas.filter(p => p.paneStatus === 'aguardando_transferencia').length,
+          panesFiltradas.filter(p => p.paneStatus === 'finalizada').length
+        ];
+
+        new Chart(statusChartCanvas.getContext('2d'), {
+          type: 'doughnut',
+          data: {
+            labels: statusLabels,
+            datasets: [{
+              data: statusData,
+              backgroundColor: ['#f59e0b', '#3b82f6', '#22c55e', '#8b5cf6', '#64748b'],
+              borderColor: '#1e293b',
+              borderWidth: 2
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: { color: textColor, padding: 14, font: { size: 11 } }
+              }
+            }
+          }
+        });
+      }
+
+      const pendenciaChartCanvas = document.getElementById('dashboardPendenciaChart');
+      if (pendenciaChartCanvas) {
+        const pendenciaLabels = ['Compra', 'Transferência', 'Ferramenta', 'Material'];
+        const pendenciaData = [
+          pendenciasFiltradas.filter(p => p.tipoAquisicao === 'compra').length,
+          pendenciasFiltradas.filter(p => p.tipoAquisicao === 'transferencia').length,
+          pendenciasFiltradas.filter(p => p.tipoItem === 'ferramenta').length,
+          pendenciasFiltradas.filter(p => p.tipoItem === 'material').length
+        ];
+
+        new Chart(pendenciaChartCanvas.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: pendenciaLabels,
+            datasets: [{
+              data: pendenciaData,
+              backgroundColor: ['#06b6d4', '#8b5cf6', '#f59e0b', '#22c55e'],
+              borderColor: '#1e293b',
+              borderWidth: 2,
+              borderRadius: 6
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { color: textColor, precision: 0 },
+                grid: { color: 'rgba(241,245,249,0.12)' }
+              },
+              x: {
+                ticks: { color: textColor },
+                grid: { display: false }
+              }
+            }
+          }
+        });
+      }
+
+      const trendChartCanvas = document.getElementById('dashboardTrendChart');
+      if (trendChartCanvas) {
+        const panesMensaisMap = {};
+        panes.forEach(p => {
+          if (!p.criadoEm) return;
+          const date = new Date(p.criadoEm);
+          if (isNaN(date.getTime())) return;
+          const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          panesMensaisMap[key] = (panesMensaisMap[key] || 0) + 1;
+        });
+
+        const panesMensais = Object.entries(panesMensaisMap)
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .slice(-6)
+          .map(([mes, total]) => ({
+            mes: new Date(`${mes}-01T00:00:00`).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
+            total
+          }));
+
+        new Chart(trendChartCanvas.getContext('2d'), {
+          type: 'line',
+          data: {
+            labels: panesMensais.map(item => item.mes),
+            datasets: [{
+              label: 'Panes',
+              data: panesMensais.map(item => item.total),
+              borderColor: '#f59e0b',
+              backgroundColor: 'rgba(245,158,11,0.15)',
+              tension: 0.35,
+              fill: true,
+              pointRadius: 4,
+              pointHoverRadius: 5
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: { color: textColor }
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { color: textColor, precision: 0 },
+                grid: { color: 'rgba(241,245,249,0.12)' }
+              },
+              x: {
+                ticks: { color: textColor },
+                grid: { display: false }
               }
             }
           }
