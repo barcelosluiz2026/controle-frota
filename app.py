@@ -14,16 +14,27 @@ app = Flask(__name__, static_folder=str(BASE_DIR), static_url_path="")
 
 def build_database_uri() -> str:
     database_url = os.getenv("DATABASE_URL", "").strip()
+
     if database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql://", 1)
+
     if database_url:
+        if "sslmode=" not in database_url:
+            separator = "&" if "?" in database_url else "?"
+            database_url = f"{database_url}{separator}sslmode=require"
         return database_url
+
     return f"sqlite:///{BASE_DIR / 'app.db'}"
 
 
 app.config["SQLALCHEMY_DATABASE_URI"] = build_database_uri()
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["JSON_SORT_KEYS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_pre_ping": True,
+    "pool_recycle": 300,
+}
+
 
 db = SQLAlchemy(app)
 
