@@ -133,6 +133,7 @@
     let editingEtapa = null;
     let editingPendencia = null;
     let editingPane = null;
+    let previousView = null;
 
     const MODELOS_HELICOPTERO = ['AW139', 'AW189', 'H175', 'H160', 'EC225', 'S92A', 'Outro'];
 
@@ -281,6 +282,9 @@
               <div class="flex gap-2 flex-wrap">
                 <button id="inspecaoProgramadaBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
                   ✅ Inspeção Programada
+                </button>
+                <button id="controleRodEndBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
+                  🔧 Controle Rod End
                 </button>
                 ${currentUser && currentUser.role !== 'mecanico' ? `
                   <button id="relatorioPendenciasBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
@@ -545,6 +549,49 @@
                   </form>
                 </div>
               </div>
+
+
+              <div id="relatorioAvionicosModal" class="hidden fixed inset-0 items-center justify-center p-4" style="background-color: rgba(0,0,0,0.7); z-index: 1000;">
+                <div class="w-full max-w-lg rounded-lg p-6" style="background-color: ${surfaceColor};">
+                  <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.5}px;">📻 Pendências Aviônicos</h2>
+                  <form id="relatorioAvionicosForm">
+                    <div class="mb-4">
+                      <label for="avionicosModoSelect" class="block mb-2" style="font-size: ${fontSize}px;">Tipo de relatório</label>
+                      <select id="avionicosModoSelect" class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;">
+                        <option value="geral">Pendências normais</option>
+                        <option value="aeronave">Por aeronave</option>
+                      </select>
+                    </div>
+
+                    <div id="avionicosAeronaveGroup" class="hidden mb-4">
+                      <label for="filtroAvionicosAeronave" class="block mb-2" style="font-size: ${fontSize}px;">Aeronave</label>
+                      <select id="filtroAvionicosAeronave" class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;">
+                        <option value="">Selecione a aeronave</option>
+                        ${aeronaves.slice().sort((a, b) => a.prefixo.localeCompare(b.prefixo)).map(a => 
+                          `<option value="${a.id}">${a.prefixo} - ${a.modelo}</option>`
+                        ).join('')}
+                      </select>
+                    </div>
+
+                    <div id="avionicosPaneGroup" class="hidden mb-4">
+                      <label for="filtroAvionicosPane" class="block mb-2" style="font-size: ${fontSize}px;">Pane em aberto</label>
+                      <select id="filtroAvionicosPane" class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;">
+                        <option value="">Selecione uma pane em aberto</option>
+                      </select>
+                      <p style="font-size: ${fontSize * 0.8}px; opacity: 0.7; margin-top: 6px;">Ao selecionar uma pane, o relatório será gerado com todas as etapas já cumpridas dessa pane específica.</p>
+                    </div>
+
+                    <div class="flex gap-3">
+                      <button type="submit" class="flex-1 px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
+                        📄 Gerar Relatório
+                      </button>
+                      <button type="button" id="cancelRelatorioAvionicosBtn" class="flex-1 px-4 py-2 rounded font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize}px;">
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
             ` : ''}
           </div>
         </div>
@@ -736,7 +783,7 @@
               </div>
             </div>
 
-            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
               <div class="rounded-lg p-6 xl:col-span-2" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
                 <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.3}px;">📌 Resumo Operacional</h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -789,6 +836,28 @@
                     `).join('')}
                   </div>
                 `}
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
+                <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                  <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">📻 Ranking Aguardando Finalização - Aviônicos</h2>
+                  <span style="font-size: ${fontSize * 0.85}px; opacity: 0.7;">Mais antigas em aberto</span>
+                </div>
+                <div id="rankingAviContainer" class="space-y-3">
+                  <p style="font-size: ${fontSize}px; opacity: 0.7;">Carregando ranking...</p>
+                </div>
+              </div>
+
+              <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
+                <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                  <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">🔧 Ranking Aguardando Finalização - Mecânicos</h2>
+                  <span style="font-size: ${fontSize * 0.85}px; opacity: 0.7;">Mais antigas em aberto</span>
+                </div>
+                <div id="rankingMecContainer" class="space-y-3">
+                  <p style="font-size: ${fontSize}px; opacity: 0.7;">Carregando ranking...</p>
+                </div>
               </div>
             </div>
           </div>
@@ -1475,10 +1544,96 @@
         });
       }
 
+      const controleRodEndBtn = document.getElementById('controleRodEndBtn');
+      if (controleRodEndBtn) {
+        controleRodEndBtn.addEventListener('click', () => {
+          window.location.href = '/rodend';
+        });
+      }
+
       const relatorioAvionicosBtn = document.getElementById('relatorioAvionicosBtn');
-      if (relatorioAvionicosBtn) {
+      const relatorioAvionicosModal = document.getElementById('relatorioAvionicosModal');
+      const cancelRelatorioAvionicosBtn = document.getElementById('cancelRelatorioAvionicosBtn');
+      const relatorioAvionicosForm = document.getElementById('relatorioAvionicosForm');
+      const avionicosModoSelect = document.getElementById('avionicosModoSelect');
+      const avionicosAeronaveGroup = document.getElementById('avionicosAeronaveGroup');
+      const avionicosPaneGroup = document.getElementById('avionicosPaneGroup');
+      const filtroAvionicosAeronave = document.getElementById('filtroAvionicosAeronave');
+      const filtroAvionicosPane = document.getElementById('filtroAvionicosPane');
+
+      function atualizarVisibilidadeRelatorioAvionicos() {
+        const modo = avionicosModoSelect?.value || 'geral';
+        if (avionicosAeronaveGroup) {
+          avionicosAeronaveGroup.classList.toggle('hidden', modo !== 'aeronave');
+        }
+        if (avionicosPaneGroup) {
+          avionicosPaneGroup.classList.toggle('hidden', modo !== 'aeronave');
+        }
+        if (modo !== 'aeronave' && filtroAvionicosPane) {
+          filtroAvionicosPane.innerHTML = '<option value="">Selecione uma pane em aberto</option>';
+        }
+      }
+
+      if (relatorioAvionicosBtn && relatorioAvionicosModal) {
         relatorioAvionicosBtn.addEventListener('click', () => {
-          gerarRelatorioAvionicos();
+          relatorioAvionicosForm?.reset();
+          if (filtroAvionicosPane) {
+            filtroAvionicosPane.innerHTML = '<option value="">Selecione uma pane em aberto</option>';
+          }
+          atualizarVisibilidadeRelatorioAvionicos();
+          relatorioAvionicosModal.classList.remove('hidden');
+          relatorioAvionicosModal.classList.add('flex');
+        });
+      }
+
+      if (cancelRelatorioAvionicosBtn && relatorioAvionicosModal) {
+        cancelRelatorioAvionicosBtn.addEventListener('click', () => {
+          relatorioAvionicosModal.classList.add('hidden');
+          relatorioAvionicosModal.classList.remove('flex');
+        });
+      }
+
+      if (avionicosModoSelect) {
+        avionicosModoSelect.addEventListener('change', () => {
+          atualizarVisibilidadeRelatorioAvionicos();
+          if (filtroAvionicosPane) {
+            filtroAvionicosPane.innerHTML = '<option value="">Selecione uma pane em aberto</option>';
+          }
+        });
+      }
+
+      if (filtroAvionicosAeronave) {
+        filtroAvionicosAeronave.addEventListener('change', () => {
+          preencherSelectPanesAvionicosAbertas(filtroAvionicosAeronave.value, filtroAvionicosPane);
+        });
+      }
+
+      if (relatorioAvionicosForm) {
+        relatorioAvionicosForm.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const modo = avionicosModoSelect?.value || 'geral';
+
+          if (modo === 'geral') {
+            gerarRelatorioAvionicos();
+          } else {
+            const aeronaveId = filtroAvionicosAeronave?.value || '';
+            const paneId = filtroAvionicosPane?.value || '';
+
+            if (!aeronaveId) {
+              showToast('Selecione a aeronave', 'error');
+              return;
+            }
+
+            if (!paneId) {
+              showToast('Selecione a pane em aberto', 'error');
+              return;
+            }
+
+            gerarRelatorioEtapasPaneAvionicos(aeronaveId, paneId);
+          }
+
+          relatorioAvionicosModal.classList.add('hidden');
+          relatorioAvionicosModal.classList.remove('flex');
         });
       }
 
@@ -1799,6 +1954,180 @@
           renderCurrentView();
         });
       });
+    }
+
+
+    function getPanesAvionicosAbertasPorAeronave(aeronaveId) {
+      return currentData
+        .filter(d =>
+          d.type === 'pane' &&
+          d.aeronaveId === aeronaveId &&
+          d.paneTipo === 'avionico' &&
+          d.paneStatus !== 'finalizada'
+        )
+        .sort((a, b) => {
+          const dataA = new Date(a.criadoEm || 0).getTime();
+          const dataB = new Date(b.criadoEm || 0).getTime();
+          return dataA - dataB;
+        });
+    }
+
+    function preencherSelectPanesAvionicosAbertas(aeronaveId, selectElement) {
+      if (!selectElement) return;
+      selectElement.innerHTML = '<option value="">Selecione uma pane em aberto</option>';
+
+      if (!aeronaveId) return;
+
+      const panes = getPanesAvionicosAbertasPorAeronave(aeronaveId);
+      panes.forEach(pane => {
+        const option = document.createElement('option');
+        const statusLabel = {
+          lancada: 'Lançada',
+          em_progresso: 'Em Progresso',
+          aguardando_material: 'Aguardando Material',
+          aguardando_transferencia: 'Aguardando Transferência',
+          aguardando_ferramenta: 'Aguardando Ferramenta'
+        }[pane.paneStatus] || pane.paneStatus || 'Aberta';
+
+        option.value = pane.id;
+        option.textContent = `ATA ${pane.paneAta || '--'} • ${statusLabel} • ${pane.paneDescricao}`;
+        selectElement.appendChild(option);
+      });
+    }
+
+    function gerarRelatorioEtapasPaneAvionicos(aeronaveId, paneId) {
+      const aeronave = currentData.find(d => d.type === 'aeronave' && d.id === aeronaveId);
+      const pane = currentData.find(d => d.type === 'pane' && d.id === paneId && d.aeronaveId === aeronaveId);
+
+      if (!aeronave || !pane) {
+        showToast('Pane ou aeronave não encontrada', 'error');
+        return;
+      }
+
+      const etapas = currentData
+        .filter(d => d.type === 'etapa' && d.paneId === pane.id)
+        .sort((a, b) => new Date(a.etapaData || a.criadoEm || 0) - new Date(b.etapaData || b.criadoEm || 0));
+
+      const janelaRelatorio = window.open('', '_blank');
+      if (!janelaRelatorio) {
+        showToast('Não foi possível abrir a janela do relatório', 'error');
+        return;
+      }
+
+      const dataCriacao = pane.criadoEm ? new Date(pane.criadoEm).toLocaleDateString('pt-BR') : '-';
+      const statusLabel = {
+        lancada: '📋 Lançada',
+        em_progresso: '🔧 Em Progresso',
+        aguardando_material: '📦 Aguardando Material',
+        aguardando_transferencia: '🔄 Aguardando Transferência',
+        aguardando_ferramenta: '🧰 Aguardando Ferramenta',
+        finalizada: '✅ Finalizada'
+      }[pane.paneStatus] || (pane.paneStatus || '-');
+
+      janelaRelatorio.document.write(`
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Etapas da Pane Aviônica</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: Arial, sans-serif; padding: 30px; background-color: white; color: #000; }
+            @media print {
+              body { padding: 20px; }
+              .no-print { display: none !important; }
+            }
+            h1 { font-size: 24px; margin-bottom: 10px; }
+            h2 { font-size: 18px; margin: 24px 0 12px; }
+            .info { margin-bottom: 24px; font-size: 14px; color: #333; }
+            .buttons { margin-bottom: 20px; }
+            button {
+              padding: 10px 20px;
+              margin-right: 10px;
+              border: none;
+              background-color: #3b82f6;
+              color: white;
+              border-radius: 5px;
+              cursor: pointer;
+              font-size: 14px;
+            }
+            .card {
+              border: 1px solid #ccc;
+              border-radius: 8px;
+              padding: 14px;
+              margin-bottom: 14px;
+              break-inside: avoid;
+            }
+            .meta {
+              display: flex;
+              gap: 16px;
+              flex-wrap: wrap;
+              font-size: 12px;
+              color: #555;
+              margin-bottom: 10px;
+            }
+            .desc {
+              white-space: pre-wrap;
+              line-height: 1.45;
+              font-size: 14px;
+            }
+            .pane-box {
+              background: #f8fafc;
+              border: 1px solid #cbd5e1;
+              border-left: 4px solid #2563eb;
+              padding: 14px;
+              border-radius: 8px;
+              margin-bottom: 20px;
+            }
+            .empty {
+              padding: 20px;
+              background-color: #fef3c7;
+              border: 1px solid #f59e0b;
+              border-radius: 8px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="no-print buttons">
+            <button onclick="window.print()">🖨️ Imprimir</button>
+            <button onclick="window.close()">✖ Fechar</button>
+          </div>
+
+          <h1>📻 Etapas já cumpridas da Pane Aviônica</h1>
+          <div class="info">
+            <p><strong>Data de Emissão:</strong> ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}</p>
+            <p><strong>Aeronave:</strong> ${aeronave.prefixo} - ${aeronave.modelo}</p>
+          </div>
+
+          <div class="pane-box">
+            <p><strong>ATA:</strong> ${pane.paneAta || '-'}</p>
+            <p><strong>Status:</strong> ${statusLabel}</p>
+            <p><strong>Responsável:</strong> ${pane.paneResponsavel || '-'}</p>
+            <p><strong>Data de criação:</strong> ${dataCriacao}</p>
+            <p style="margin-top: 10px;"><strong>Descrição da Pane:</strong><br>${pane.paneDescricao || '-'}</p>
+          </div>
+
+          <h2>📋 Etapas Registradas (${etapas.length})</h2>
+
+          ${etapas.length === 0 ? `
+            <div class="empty">Nenhuma etapa registrada para esta pane.</div>
+          ` : etapas.map((etapa, index) => `
+            <div class="card">
+              <div class="meta">
+                <span><strong>#${index + 1}</strong></span>
+                <span><strong>Data:</strong> ${etapa.etapaData ? new Date(etapa.etapaData).toLocaleString('pt-BR') : '-'}</span>
+                <span><strong>Responsável:</strong> ${etapa.etapaUsuario || '-'}</span>
+                <span><strong>Login:</strong> ${etapa.etapaLoginUsuario || '-'}</span>
+              </div>
+              <div class="desc">${etapa.etapaDescricao || '-'}</div>
+            </div>
+          `).join('')}
+        </body>
+        </html>
+      `);
+
+      janelaRelatorio.document.close();
     }
 
     function gerarRelatorioAvionicos() {
@@ -2196,6 +2525,67 @@
       janelaRelatorio.document.close();
     }
 
+    async function carregarRankingPanesDashboard(tipo, containerId) {
+      const config = window.elementSdk?.config || defaultConfig;
+      const fontSize = config.font_size || defaultConfig.font_size;
+      const bgColor = config.background_color || defaultConfig.background_color;
+      const primaryColor = config.primary_action || defaultConfig.primary_action;
+      const secondaryColor = config.secondary_action || defaultConfig.secondary_action;
+      const container = document.getElementById(containerId);
+
+      if (!container) return;
+
+      try {
+        const response = await fetch(`${RENDER_API_BASE}/ranking-panes?tipo=${encodeURIComponent(tipo)}&limit=10`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const ranking = await response.json();
+
+        if (!Array.isArray(ranking) || ranking.length === 0) {
+          container.innerHTML = `<p style="font-size: ${fontSize}px; opacity: 0.7;">Nenhuma pane aberta encontrada para este grupo.</p>`;
+          return;
+        }
+
+        container.innerHTML = ranking.map((item, index) => `
+          <div class="rounded p-4 cursor-pointer dashboard-pane-ranking-item" data-id="${item.id}" style="background-color: ${bgColor}; border-left: 4px solid ${index === 0 ? '#ef4444' : primaryColor};">
+            <div class="flex items-start justify-between gap-3">
+              <div style="min-width: 0; flex: 1;">
+                <p class="font-bold" style="font-size: ${fontSize * 0.98}px; margin-bottom: 6px;">${index + 1}. ${item.prefixo || 'Sem prefixo'} • ATA ${item.ata || 'N/I'}</p>
+                <p style="font-size: ${fontSize * 0.9}px; opacity: 0.92; line-height: 1.4; word-break: break-word;">${item.descricao || 'Sem descrição'}</p>
+                <div class="flex gap-2 flex-wrap" style="margin-top: 8px;">
+                  <span class="px-2 py-1 rounded" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize * 0.78}px;">${item.status || 'Sem status'}</span>
+                  <span class="px-2 py-1 rounded" style="background-color: rgba(239,68,68,0.16); color: #fecaca; font-size: ${fontSize * 0.78}px;">${item.diasEmAberto} dia${item.diasEmAberto === 1 ? '' : 's'}</span>
+                </div>
+              </div>
+              <div class="text-right" style="flex-shrink: 0; min-width: 82px;">
+                <p class="font-bold" style="font-size: ${fontSize * 1.05}px; color: #fca5a5;">${item.horasEmAberto}h</p>
+                <p style="font-size: ${fontSize * 0.75}px; opacity: 0.7;">em aberto</p>
+              </div>
+            </div>
+          </div>
+        `).join('');
+
+        container.querySelectorAll('.dashboard-pane-ranking-item').forEach(itemEl => {
+          itemEl.addEventListener('click', () => {
+            const paneId = itemEl.dataset.id;
+            selectedPane = currentData.find(d => d.type === 'pane' && d.id === paneId) || null;
+            if (selectedPane) {
+              previousView = 'dashboard';
+              selectedAeronave = currentData.find(d => d.type === 'aeronave' && d.id === selectedPane.aeronaveId) || null;
+              currentView = 'pane';
+              renderCurrentView();
+            }
+          });
+        });
+      } catch (error) {
+        console.error('Erro ao carregar ranking de panes:', error);
+        container.innerHTML = `<p style="font-size: ${fontSize}px; color: #fca5a5;">Erro ao carregar ranking.</p>`;
+      }
+    }
+
+
     function setupDashboardListeners() {
       const backBtn = document.getElementById('dashboardBackBtn');
       if (backBtn) {
@@ -2503,6 +2893,9 @@
           }
         });
       }
+
+      carregarRankingPanesDashboard('avionico', 'rankingAviContainer');
+      carregarRankingPanesDashboard('mecanico', 'rankingMecContainer');
     }
 
 
@@ -2688,6 +3081,14 @@
       const backBtn = document.getElementById('backToAeronaveBtn');
       if (backBtn) {
         backBtn.addEventListener('click', () => {
+          if (previousView === 'dashboard') {
+            currentView = 'dashboard';
+            previousView = null;
+            selectedPane = null;
+            renderCurrentView();
+            return;
+          }
+
           currentView = 'aeronave';
           selectedPane = null;
           renderCurrentView();
@@ -3426,8 +3827,3 @@
   </script>
  <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9cd918f3c3e8ca97',t:'MTc3MTAzNTc0My4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
-
-
-
-
-
