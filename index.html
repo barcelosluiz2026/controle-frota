@@ -135,6 +135,104 @@
     let editingPane = null;
     let previousView = null;
 
+    const SHARED_AUTH_STORAGE_KEY = 'omni_shared_auth_v1';
+    const PANES_SESSION_STORAGE_KEY = 'omni_panes_session_v1';
+    const RODEND_SESSION_STORAGE_KEY = 'omni_rodend_session_v1';
+
+    function buildSharedAuthPayloadFromPanes() {
+      if (!currentUser) return null;
+      return {
+        username: currentUser.username || '',
+        role: currentUser.role || '',
+        fullName: currentUser.fullName || '',
+        isAdmin: (currentUser.role || '') === 'admin',
+        source: 'panes',
+        updatedAt: new Date().toISOString()
+      };
+    }
+
+    function savePanesSessionState() {
+      try {
+        if (!currentUser) {
+          localStorage.removeItem(PANES_SESSION_STORAGE_KEY);
+          return;
+        }
+
+        const payload = {
+          currentUser,
+          currentView: currentView === 'login' ? 'home' : (currentView || 'home'),
+          selectedAeronaveId: selectedAeronave?.id || null,
+          selectedPaneId: selectedPane?.id || null,
+          selectedAta,
+          currentTab,
+          dashboardPeriod,
+          previousView
+        };
+
+        localStorage.setItem(PANES_SESSION_STORAGE_KEY, JSON.stringify(payload));
+
+        const sharedPayload = buildSharedAuthPayloadFromPanes();
+        if (sharedPayload) {
+          localStorage.setItem(SHARED_AUTH_STORAGE_KEY, JSON.stringify(sharedPayload));
+        }
+      } catch (error) {
+        console.error('Erro ao salvar sessão do sistema de panes:', error);
+      }
+    }
+
+    function restorePanesSessionState() {
+      try {
+        const raw = localStorage.getItem(PANES_SESSION_STORAGE_KEY);
+        if (!raw) return;
+
+        const saved = JSON.parse(raw);
+        if (!saved || !saved.currentUser) return;
+
+        currentUser = saved.currentUser;
+        currentView = saved.currentView || 'home';
+        if (currentView === 'login') currentView = 'home';
+        selectedAta = saved.selectedAta || null;
+        currentTab = saved.currentTab || 'lancadas';
+        dashboardPeriod = saved.dashboardPeriod || 'all';
+        previousView = saved.previousView || null;
+
+        window.__pendingPanesRestore = {
+          selectedAeronaveId: saved.selectedAeronaveId || null,
+          selectedPaneId: saved.selectedPaneId || null
+        };
+
+        const sharedPayload = buildSharedAuthPayloadFromPanes();
+        if (sharedPayload) {
+          localStorage.setItem(SHARED_AUTH_STORAGE_KEY, JSON.stringify(sharedPayload));
+        }
+      } catch (error) {
+        console.error('Erro ao restaurar sessão do sistema de panes:', error);
+        localStorage.removeItem(PANES_SESSION_STORAGE_KEY);
+      }
+    }
+
+    function applyPendingPanesSelections() {
+      const pending = window.__pendingPanesRestore;
+      if (!pending || !Array.isArray(currentData) || currentData.length === 0) return;
+
+      if (pending.selectedAeronaveId) {
+        selectedAeronave = currentData.find(item => item.id === pending.selectedAeronaveId) || null;
+      }
+
+      if (pending.selectedPaneId) {
+        selectedPane = currentData.find(item => item.id === pending.selectedPaneId) || null;
+      }
+
+      window.__pendingPanesRestore = null;
+    }
+
+    function clearUnifiedSessionState() {
+      localStorage.removeItem(SHARED_AUTH_STORAGE_KEY);
+      localStorage.removeItem(PANES_SESSION_STORAGE_KEY);
+      localStorage.removeItem(RODEND_SESSION_STORAGE_KEY);
+    }
+
+
     const MODELOS_HELICOPTERO = ['AW139', 'AW189', 'H175', 'H160', 'EC225', 'S92A', 'Outro'];
 
     const IMAGENS_FUNDO = {
@@ -221,6 +319,10 @@
       } else if (currentView === 'pane') {
         app.innerHTML = renderPaneDetail(bgColor, surfaceColor, textColor, primaryColor, secondaryColor, fontFamily, fontSize);
         setupPaneListeners();
+      }
+
+      if (currentUser && currentView !== 'login') {
+        savePanesSessionState();
       }
     }
 
@@ -1516,6 +1618,7 @@
           if (username === 'admin' && password === 'Omni0320!') {
             currentUser = { username: 'admin', role: 'admin', fullName: 'Administrador' };
             currentView = 'home';
+            savePanesSessionState();
             renderCurrentView();
             return;
           }
@@ -1525,6 +1628,7 @@
           if (user) {
             currentUser = user;
             currentView = 'home';
+            savePanesSessionState();
             renderCurrentView();
           } else {
             if (errorDiv) {
@@ -1650,6 +1754,11 @@
         logoutBtn.addEventListener('click', () => {
           currentUser = null;
           currentView = 'login';
+          selectedAeronave = null;
+          selectedPane = null;
+          selectedAta = null;
+          previousView = null;
+          clearUnifiedSessionState();
           renderCurrentView();
         });
       }
@@ -3743,11 +3852,14 @@
     const dataHandler = {
       onDataChanged(data) {
         currentData = data;
+        applyPendingPanesSelections();
         renderCurrentView();
       }
     };
 
     async function init() {
+      restorePanesSessionState();
+
       if (window.dataSdk) {
         const initResult = await window.dataSdk.init(dataHandler);
         if (!initResult.isOk) {
