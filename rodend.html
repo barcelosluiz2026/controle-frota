@@ -503,10 +503,10 @@
       </div>
      </div><!-- Unit Selection -->
      <div class="glass-card rounded-lg p-4"><label class="block text-sm font-medium text-slate-300 mb-3">Unidade de Medida</label>
-      <div class="flex gap-3"><label class="flex-1 cursor-pointer"> <input type="radio" name="unit" value="inch" class="hidden unit-radio">
-        <div class="unit-option input-field px-4 py-3 rounded-lg text-center transition-all border-2 border-transparent"><span class="text-white font-semibold">📏 Polegadas</span>
-        </div></label> <label class="flex-1 cursor-pointer"> <input type="radio" name="unit" value="mm" class="hidden unit-radio" checked>
-        <div class="unit-option input-field px-4 py-3 rounded-lg text-center transition-all border-2 border-blue-500"><span class="text-white font-semibold">📐 Milímetros</span>
+      <div class="flex gap-3"><label class="flex-1 cursor-pointer"> <input type="radio" name="unit" value="inch" class="hidden unit-radio" checked>
+        <div class="unit-option input-field px-4 py-3 rounded-lg text-center transition-all border-2 border-blue-500"><span class="text-white font-semibold">📏 Polegadas</span>
+        </div></label> <label class="flex-1 cursor-pointer"> <input type="radio" name="unit" value="mm" class="hidden unit-radio">
+        <div class="unit-option input-field px-4 py-3 rounded-lg text-center transition-all border-2 border-transparent"><span class="text-white font-semibold">📐 Milímetros</span>
         </div></label>
       </div>
      </div><!-- Limit Display -->
@@ -781,43 +781,12 @@
         .toLowerCase();
     }
 
-    function normalizeValue(value) {
-      return String(value || '').trim();
-    }
-
-    function normalizeKey(value) {
-      return normalizeValue(value).toLowerCase();
-    }
-
-    function getExpectedColors(model, componentType) {
-      return COMPONENT_CONFIG?.[model]?.[componentType]?.colors || [];
-    }
-
-    function getExpectedComponentCount(model, componentType) {
-      return getExpectedColors(model, componentType).length;
-    }
-
-    function getExpectedAircraftComponentTotal(model) {
-      const config = COMPONENT_CONFIG?.[model] || {};
-      return Object.keys(config).reduce((total, type) => total + getExpectedComponentCount(model, type), 0);
-    }
-
     function normalizeRecord(record) {
       const normalized = { ...(record || {}) };
-      normalized.type = normalizeValue(normalized.type || normalized.record_type || '');
-      normalized.record_type = normalizeValue(normalized.record_type || normalized.type || '');
-      normalized.id = normalizeValue(normalized.id || normalized.__backendId || '');
-      normalized.__backendId = normalizeValue(normalized.__backendId || normalized.id || '');
-
-      ['aircraft_prefix', 'aircraft_model', 'component_type', 'component_color', 'username'].forEach((field) => {
-        if (normalized[field] !== undefined && normalized[field] !== null) {
-          normalized[field] = normalizeValue(normalized[field]);
-        }
-      });
-
-      if (normalized.aircraft_prefix) {
-        normalized.aircraft_prefix = normalized.aircraft_prefix.toUpperCase();
-      }
+      normalized.type = normalized.type || normalized.record_type || '';
+      normalized.record_type = normalized.record_type || normalized.type || '';
+      normalized.id = normalized.id || normalized.__backendId || '';
+      normalized.__backendId = normalized.__backendId || normalized.id || '';
 
       [
         'measure1_current', 'measure1_max', 'measure1_alert',
@@ -994,7 +963,7 @@
     }
 
     function getSelectedUnit() {
-      return document.querySelector('input[name="unit"]:checked')?.value || 'mm';
+      return document.querySelector('input[name="unit"]:checked')?.value || 'inch';
     }
 
     function parseInspectionDate(value) {
@@ -1116,38 +1085,27 @@
 
     function getAircraftList() {
       const aircraftRecords = getDataRecords().filter(r => r.aircraft_prefix && r.aircraft_model);
-      const uniqueAircraft = dedupeBy(
-        aircraftRecords,
-        (r) => `${normalizeKey(r.aircraft_prefix)}__${normalizeKey(r.aircraft_model)}`
-      );
-
+      const uniqueAircraft = dedupeBy(aircraftRecords, (r) => `${r.aircraft_prefix}__${r.aircraft_model}`);
       return uniqueAircraft
-        .map((record) => ({
-          prefix: normalizeValue(record.aircraft_prefix).toUpperCase(),
-          model: normalizeValue(record.aircraft_model)
-        }))
+        .map((record) => ({ prefix: record.aircraft_prefix, model: record.aircraft_model }))
         .sort((a, b) => `${a.model}_${a.prefix}`.localeCompare(`${b.model}_${b.prefix}`));
     }
 
     function getComponentsForAircraft(prefix, model) {
-      const normalizedPrefix = normalizeKey(prefix);
-      const normalizedModel = normalizeKey(model);
-
-      const components = getDataRecords().filter(r =>
-        normalizeKey(r.aircraft_prefix) === normalizedPrefix &&
-        normalizeKey(r.aircraft_model) === normalizedModel &&
-        normalizeKey(r.component_type) !== '_aircraft_marker'
+      const components = getDataRecords().filter(r => 
+        r.aircraft_prefix === prefix && 
+        r.aircraft_model === model && 
+        r.component_type !== '_aircraft_marker'
       );
 
       return dedupeBy(
         components,
-        (r) => `${normalizeKey(r.aircraft_prefix)}__${normalizeKey(r.aircraft_model)}__${normalizeKey(r.component_type)}__${normalizeKey(r.component_color)}`
-      ).sort((a, b) => normalizeValue(a.component_color).localeCompare(normalizeValue(b.component_color)));
+        (r) => `${r.aircraft_prefix}__${r.aircraft_model}__${r.component_type}__${r.component_color}`
+      ).sort((a, b) => (a.component_color || '').localeCompare(b.component_color || ''));
     }
 
     function getComponentsByType(prefix, model, type) {
-      const normalizedType = normalizeKey(type);
-      return getComponentsForAircraft(prefix, model).filter(c => normalizeKey(c.component_type) === normalizedType);
+      return getComponentsForAircraft(prefix, model).filter(c => c.component_type === type);
     }
 
     // ========== STATUS CALCULATION ==========
@@ -1406,7 +1364,7 @@
       const existingComponents = getComponentsByType(currentAircraft.prefix, currentAircraft.model, componentType);
       
       availableColors.forEach(color => {
-        const existingComp = existingComponents.find(c => normalizeKey(c.component_color) === normalizeKey(color));
+        const existingComp = existingComponents.find(c => c.component_color === color);
         const card = document.createElement('div');
         card.className = 'glass-card rounded-xl p-6 cursor-pointer hover:border-blue-500/50 transition-all';
         
@@ -1475,14 +1433,34 @@
             historyHTML += '</div>';
           }
           
-          // Check if this is Tail Rotor Link to show single P/N
+          // Tail Rotor Link pode ter P/N único (EC175) ou P/N separados (AW139)
           const isTailRotorLink = currentComponentType === 'Tail Rotor Link';
-          const partNumberDisplay = isTailRotorLink ? `
-            <div class="w-full mb-3 text-center">
-              <p class="text-white text-xs font-bold leading-tight">${existingComp.measure1_part_number.split(' (P/N ')[0]}</p>
-              <p class="text-slate-300 text-xs leading-tight">(P/N ${existingComp.measure1_part_number.split(' (P/N ')[1].replace(')', '')})</p>
-            </div>
-          ` : '';
+          const formatPartNumberBlock = (pnValue) => {
+            const rawPn = String(pnValue || '').trim();
+            if (!rawPn) return '';
+
+            if (rawPn.includes(' (P/N ')) {
+              const parts = rawPn.split(' (P/N ');
+              const mainText = parts[0] || rawPn;
+              const pnText = (parts[1] || '').replace(')', '').trim();
+              return `
+                <div class="w-full mb-3 text-center">
+                  <p class="text-white text-xs font-bold leading-tight">${mainText}</p>
+                  ${pnText ? `<p class="text-slate-300 text-xs leading-tight">(P/N ${pnText})</p>` : ''}
+                </div>
+              `;
+            }
+
+            return `
+              <div class="w-full mb-3 text-center">
+                <p class="text-white text-xs font-bold leading-tight">P/N ${rawPn}</p>
+              </div>
+            `;
+          };
+
+          const partNumberDisplay = isTailRotorLink
+            ? formatPartNumberBlock(existingComp.measure1_part_number)
+            : '';
           
           card.innerHTML = `
             <div class="flex flex-col items-center py-4 px-3">
@@ -1637,7 +1615,7 @@
       updateLimitDisplay();
       
       const existingComp = color ? getComponentsByType(currentAircraft.prefix, currentAircraft.model, currentComponentType)
-          .find(c => normalizeKey(c.component_color) === normalizeKey(color)) : null;
+          .find(c => c.component_color === color) : null;
       
       // Set the color (fixed, not editable)
       const selectedColor = existingComp ? existingComp.component_color : color;
