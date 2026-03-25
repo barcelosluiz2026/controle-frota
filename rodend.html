@@ -609,6 +609,106 @@
     const ADMIN_USER = 'admin';
     const ADMIN_PASSWORD = 'admin123';
     const DEFAULT_PASSWORD = '123456';
+
+    const SHARED_AUTH_STORAGE_KEY = 'omni_shared_auth_v1';
+    const PANES_SESSION_STORAGE_KEY = 'omni_panes_session_v1';
+    const RODEND_SESSION_STORAGE_KEY = 'omni_rodend_session_v1';
+
+    function getRodEndSessionPayload() {
+      if (!currentUser || !currentUser.username) return null;
+      return {
+        currentUser,
+        updatedAt: new Date().toISOString()
+      };
+    }
+
+    function saveRodEndSessionState() {
+      try {
+        const payload = getRodEndSessionPayload();
+        if (!payload) {
+          localStorage.removeItem(RODEND_SESSION_STORAGE_KEY);
+          return;
+        }
+
+        localStorage.setItem(RODEND_SESSION_STORAGE_KEY, JSON.stringify(payload));
+
+        const sharedPayload = {
+          username: currentUser.username || '',
+          role: currentUser.role || '',
+          fullName: currentUser.fullName || '',
+          isAdmin: !!currentUser.isAdmin || (currentUser.role || '') === 'admin',
+          source: 'rodend',
+          updatedAt: new Date().toISOString()
+        };
+        localStorage.setItem(SHARED_AUTH_STORAGE_KEY, JSON.stringify(sharedPayload));
+      } catch (error) {
+        console.error('Erro ao salvar sessão do ROD END:', error);
+      }
+    }
+
+    function clearUnifiedSessionState() {
+      localStorage.removeItem(SHARED_AUTH_STORAGE_KEY);
+      localStorage.removeItem(PANES_SESSION_STORAGE_KEY);
+      localStorage.removeItem(RODEND_SESSION_STORAGE_KEY);
+    }
+
+    function applyRodEndSession(user) {
+      currentUser = {
+        username: user?.username || '',
+        isAdmin: !!user?.isAdmin || (user?.role || '') === 'admin',
+        id: user?.id || '',
+        role: user?.role || '',
+        fullName: user?.fullName || ''
+      };
+
+      document.getElementById('user-display').textContent = currentUser.username || '';
+      document.getElementById('manage-users-btn').classList.toggle('hidden', !currentUser.isAdmin);
+
+      loginScreen.classList.add('hidden');
+      changePasswordScreen.classList.add('hidden');
+      mainApp.classList.remove('hidden');
+
+      dashboardView.classList.remove('hidden');
+      userManagementView.classList.add('hidden');
+      aircraftDetailsView.classList.add('hidden');
+      componentOptions.classList.remove('hidden');
+      colorSelectionView.classList.add('hidden');
+
+      saveRodEndSessionState();
+    }
+
+    function restoreRodEndSessionState() {
+      try {
+        const rawRod = localStorage.getItem(RODEND_SESSION_STORAGE_KEY);
+        if (rawRod) {
+          const savedRod = JSON.parse(rawRod);
+          if (savedRod?.currentUser?.username) {
+            applyRodEndSession(savedRod.currentUser);
+            return true;
+          }
+        }
+
+        const rawShared = localStorage.getItem(SHARED_AUTH_STORAGE_KEY);
+        if (rawShared) {
+          const shared = JSON.parse(rawShared);
+          if (shared?.username) {
+            applyRodEndSession({
+              username: shared.username,
+              isAdmin: !!shared.isAdmin || (shared.role || '') === 'admin',
+              role: shared.role || '',
+              fullName: shared.fullName || '',
+              id: shared.id || ''
+            });
+            return true;
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao restaurar sessão do ROD END:', error);
+      }
+
+      return false;
+    }
+
     
     const MAX_CLEARANCE = {
       'EC175': {
@@ -687,7 +787,42 @@
       normalized.record_type = normalized.record_type || normalized.type || '';
       normalized.id = normalized.id || normalized.__backendId || '';
       normalized.__backendId = normalized.__backendId || normalized.id || '';
+
+      [
+        'measure1_current', 'measure1_max', 'measure1_alert',
+        'measure2_current', 'measure2_max', 'measure2_alert'
+      ].forEach((field) => {
+        if (normalized[field] !== undefined && normalized[field] !== null && normalized[field] !== '') {
+          const parsed = Number(normalized[field]);
+          normalized[field] = Number.isFinite(parsed) ? parsed : 0;
+        }
+      });
+
+      normalized.needs_password_change = !!normalized.needs_password_change;
       return normalized;
+    }
+
+    function getRecordMoment(record) {
+      const candidates = [record?.modified_at, record?.updated_at, record?.created_at, record?.last_inspection_date];
+      for (const value of candidates) {
+        const date = new Date(value || '');
+        const time = date.getTime();
+        if (!Number.isNaN(time)) return time;
+      }
+      return 0;
+    }
+
+    function dedupeBy(records, keyFn) {
+      const map = new Map();
+      (records || []).forEach((record) => {
+        const key = keyFn(record);
+        if (!key) return;
+        const previous = map.get(key);
+        if (!previous || getRecordMoment(record) >= getRecordMoment(previous)) {
+          map.set(key, record);
+        }
+      });
+      return Array.from(map.values());
     }
 
     function buildRodendId(type, payload = {}) {
@@ -763,45 +898,89 @@
     }
 
     async function loadRecords() {
-      const data = await apiRequest('/records', { method: 'GET' });
-      allRecords = Array.isArray(data) ? data.map(normalizeRecord) : [];
-      refreshUiAfterDataChange();
-      return allRecords;
+      try {
+        const data = await apiRequest('/records', { method: 'GET' });
+        allRecords = Array.isArray(data) ? data.map(normalizeRecord) : [];
+        refreshUiAfterDataChange();
+        return allRecords;
+      } catch (error) {
+        console.error('Erro ao carregar registros do ROD END:', error);
+        throw error;
+      }
     }
 
     async function createRecord(payload) {
-      const prepared = preparePayload(payload);
-      const data = await apiRequest('/records', {
-        method: 'POST',
-        body: JSON.stringify(prepared)
-      });
-      await loadRecords();
-      return {
-        isOk: true,
-        item: normalizeRecord(data?.item || prepared)
-      };
+      try {
+        const prepared = preparePayload(payload);
+        const data = await apiRequest('/records', {
+          method: 'POST',
+          body: JSON.stringify(prepared)
+        });
+        await loadRecords();
+        return {
+          isOk: true,
+          item: normalizeRecord(data?.item || prepared)
+        };
+      } catch (error) {
+        console.error('Erro ao criar registro do ROD END:', error);
+        return { isOk: false, error: error.message || 'Erro ao criar registro' };
+      }
     }
 
     async function updateRecord(payload) {
-      const prepared = preparePayload(payload, payload?.id || payload?.__backendId);
-      const data = await apiRequest(`/records/${encodeURIComponent(prepared.id)}`, {
-        method: 'PUT',
-        body: JSON.stringify(prepared)
-      });
-      await loadRecords();
-      return {
-        isOk: true,
-        item: normalizeRecord(data?.item || prepared)
-      };
+      try {
+        const prepared = preparePayload(payload, payload?.id || payload?.__backendId);
+        const data = await apiRequest(`/records/${encodeURIComponent(prepared.id)}`, {
+          method: 'PUT',
+          body: JSON.stringify(prepared)
+        });
+        await loadRecords();
+        return {
+          isOk: true,
+          item: normalizeRecord(data?.item || prepared)
+        };
+      } catch (error) {
+        console.error('Erro ao atualizar registro do ROD END:', error);
+        return { isOk: false, error: error.message || 'Erro ao atualizar registro' };
+      }
     }
 
     async function deleteRecord(payload) {
-      const recordId = payload?.id || payload?.__backendId;
-      await apiRequest(`/records/${encodeURIComponent(recordId)}`, {
-        method: 'DELETE'
-      });
-      await loadRecords();
-      return { isOk: true };
+      try {
+        const recordId = payload?.id || payload?.__backendId;
+        if (!recordId) {
+          return { isOk: false, error: 'Registro inválido para exclusão' };
+        }
+        await apiRequest(`/records/${encodeURIComponent(recordId)}`, {
+          method: 'DELETE'
+        });
+        await loadRecords();
+        return { isOk: true };
+      } catch (error) {
+        console.error('Erro ao excluir registro do ROD END:', error);
+        return { isOk: false, error: error.message || 'Erro ao excluir registro' };
+      }
+    }
+
+    function getSelectedUnit() {
+      return document.querySelector('input[name="unit"]:checked')?.value || 'inch';
+    }
+
+    function parseInspectionDate(value) {
+      const clean = String(value || '').trim();
+      if (!clean) return null;
+      const date = new Date(`${clean}T00:00:00`);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    }
+
+    function validateMeasurementPair(measure1, measure2) {
+      if (!Number.isFinite(measure1) || !Number.isFinite(measure2)) {
+        return 'Preencha as duas medições com valores numéricos válidos.';
+      }
+      if (measure1 < 0 || measure2 < 0) {
+        return 'As medições não podem ser negativas.';
+      }
+      return '';
     }
 
     // ========== AUTHENTICATION ==========
@@ -896,7 +1075,8 @@
 
     // ========== DATA HELPERS ==========
     function getUserRecords() {
-      return allRecords.filter(r => r.record_type === 'rodend_user');
+      const users = allRecords.filter(r => r.record_type === 'rodend_user');
+      return dedupeBy(users, (r) => (r.username || '').trim().toLowerCase());
     }
 
     function getDataRecords() {
@@ -904,31 +1084,24 @@
     }
 
     function getAircraftList() {
-      const dataRecords = getDataRecords();
-      const aircraftMap = new Map();
-      
-      dataRecords.forEach(record => {
-        if (record.aircraft_prefix && record.aircraft_model) {
-          const key = `${record.aircraft_prefix}_${record.aircraft_model}`;
-          if (!aircraftMap.has(key)) {
-            aircraftMap.set(key, {
-              prefix: record.aircraft_prefix,
-              model: record.aircraft_model
-            });
-          }
-        }
-      });
-      
-      return Array.from(aircraftMap.values());
+      const aircraftRecords = getDataRecords().filter(r => r.aircraft_prefix && r.aircraft_model);
+      const uniqueAircraft = dedupeBy(aircraftRecords, (r) => `${r.aircraft_prefix}__${r.aircraft_model}`);
+      return uniqueAircraft
+        .map((record) => ({ prefix: record.aircraft_prefix, model: record.aircraft_model }))
+        .sort((a, b) => `${a.model}_${a.prefix}`.localeCompare(`${b.model}_${b.prefix}`));
     }
 
     function getComponentsForAircraft(prefix, model) {
-      const dataRecords = getDataRecords();
-      return dataRecords.filter(r => 
+      const components = getDataRecords().filter(r => 
         r.aircraft_prefix === prefix && 
         r.aircraft_model === model && 
         r.component_type !== '_aircraft_marker'
       );
+
+      return dedupeBy(
+        components,
+        (r) => `${r.aircraft_prefix}__${r.aircraft_model}__${r.component_type}__${r.component_color}`
+      ).sort((a, b) => (a.component_color || '').localeCompare(b.component_color || ''));
     }
 
     function getComponentsByType(prefix, model, type) {
@@ -1120,7 +1293,7 @@
         if (result.isOk) {
           showToast('Usuário excluído com sucesso!', 'success');
         } else {
-          showToast('Erro ao excluir usuário', 'error');
+          showToast(result.error || 'Erro ao excluir usuário', 'error');
         }
         confirmDiv.remove();
       });
@@ -1691,7 +1864,7 @@
         if (result.isOk) {
           showToast('Componente excluído com sucesso!', 'success');
         } else {
-          showToast('Erro ao excluir componente', 'error');
+          showToast(result.error || 'Erro ao excluir componente', 'error');
         }
         confirmDiv.remove();
       });
@@ -1987,9 +2160,7 @@
         
         if (result.isOk) {
           showToast('Senha alterada com sucesso!', 'success');
-          document.getElementById('user-display').textContent = currentUser.username;
-          changePasswordScreen.classList.add('hidden');
-          mainApp.classList.remove('hidden');
+          applyRodEndSession(currentUser);
           this.reset();
         } else {
           errorDiv.querySelector('p').textContent = 'Erro ao alterar senha';
@@ -2009,12 +2180,17 @@
     // Logout
     document.getElementById('logout-btn').addEventListener('click', function() {
       currentUser = { username: '', isAdmin: false };
+      clearUnifiedSessionState();
       mainApp.classList.add('hidden');
+      changePasswordScreen.classList.add('hidden');
       loginScreen.classList.remove('hidden');
       dashboardView.classList.remove('hidden');
       userManagementView.classList.add('hidden');
       aircraftDetailsView.classList.add('hidden');
+      componentOptions.classList.remove('hidden');
+      colorSelectionView.classList.add('hidden');
       document.getElementById('manage-users-btn').classList.add('hidden');
+      document.getElementById('login-form').reset();
     });
 
     // User Management
@@ -2051,2622 +2227,64 @@
       submitBtn.disabled = true;
       submitBtn.textContent = 'Criando...';
       
-      const username = document.getElementById('new-username').value.trim();
-      
-      // Check if user already exists
-      if (username === ADMIN_USER || getUserRecords().find(u => u.username === username)) {
-        showToast('Usuário já existe!', 'error');
-        isSubmitting = false;
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Criar Usuário';
-        return;
-      }
-      
-      const result = await createRecord({
-        type: 'rodend_user',
-        username: username,
-        password: DEFAULT_PASSWORD,
-        needs_password_change: true,
-        aircraft_prefix: '',
-        aircraft_model: '',
-        component_type: '',
-        component_color: '',
-        measure1_name: '',
-        measure1_part_number: '',
-        measure1_serial_number: '',
-        measure1_current: 0,
-        measure1_max: 0,
-        measure1_alert: 0,
-        measure2_name: '',
-        measure2_part_number: '',
-        measure2_serial_number: '',
-        measure2_current: 0,
-        measure2_max: 0,
-        measure2_alert: 0,
-        link_serial_number: '',
-        last_inspection_date: '',
-        inspection_history: '',
-        notes: '',
-        created_by: currentUser.username,
-        modified_by: '',
-        created_at: new Date().toISOString(),
-        modified_at: ''
-      });
-      
-      if (result.isOk) {
-        showToast(`Usuário ${username} criado com sucesso!`, 'success');
-        addUserModal.classList.add('hidden');
-        userForm.reset();
-      } else {
-        showToast('Erro ao criar usuário', 'error');
-      }
-      
-      isSubmitting = false;
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Criar Usuário';
-    });
-
-    // Back to Dashboard
-    document.getElementById('back-to-dashboard').addEventListener('click', () => {
-      aircraftDetailsView.classList.add('hidden');
-      dashboardView.classList.remove('hidden');
-    });
-
-    // Delete Aircraft
-    document.getElementById('delete-aircraft-btn').addEventListener('click', function() {
-      const prefix = currentAircraft.prefix;
-      const model = currentAircraft.model;
-      
-      // Find all records for this aircraft
-      const dataRecords = getDataRecords();
-      const aircraftRecords = dataRecords.filter(r => 
-        r.aircraft_prefix === prefix && r.aircraft_model === model
-      );
-      
-      const componentCount = aircraftRecords.filter(r => r.component_type !== '_aircraft_marker').length;
-      
-      const confirmDiv = document.createElement('div');
-      confirmDiv.className = 'fixed inset-0 z-50 flex items-center justify-center p-4';
-      confirmDiv.innerHTML = `
-        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-        <div class="relative glass-card rounded-2xl p-6 max-w-md w-full animate-slide-in">
-          <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-red-500/20 flex items-center justify-center">
-            <svg class="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-            </svg>
-          </div>
-          <h3 class="text-xl font-bold text-white mb-3 text-center">Confirmar Exclusão</h3>
-          <p class="text-slate-300 mb-2 text-center">Tem certeza que deseja excluir a aeronave <strong>${prefix}</strong>?</p>
-          ${componentCount > 0 ? `
-            <div class="bg-amber-500/20 border border-amber-500/50 rounded-lg p-3 mb-4">
-              <p class="text-amber-300 text-sm text-center">
-                <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-                </svg>
-                <strong>${componentCount} componente(s)</strong> serão excluído(s) junto com a aeronave!
-              </p>
-            </div>
-          ` : ''}
-          <div class="flex items-center gap-3">
-            <button id="cancel-delete" class="flex-1 px-4 py-2.5 bg-slate-700/50 hover:bg-slate-600/50 rounded-lg font-medium transition-colors">
-              Cancelar
-            </button>
-            <button id="confirm-delete" class="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 rounded-lg font-semibold transition-colors text-white">
-              Excluir Tudo
-            </button>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(confirmDiv);
-      
-      confirmDiv.querySelector('#cancel-delete').addEventListener('click', () => confirmDiv.remove());
-      
-      confirmDiv.querySelector('#confirm-delete').addEventListener('click', async function() {
-        this.disabled = true;
-        this.textContent = 'Excluindo...';
-        
-        // Delete all records for this aircraft
-        let successCount = 0;
-        let errorCount = 0;
-        
-        for (const record of aircraftRecords) {
-          const result = await deleteRecord(record);
-          if (result.isOk) {
-            successCount++;
-          } else {
-            errorCount++;
-          }
-        }
-        
-        if (errorCount === 0) {
-          showToast(`Aeronave ${prefix} e todos os componentes excluídos com sucesso!`, 'success');
-          aircraftDetailsView.classList.add('hidden');
-          dashboardView.classList.remove('hidden');
-        } else {
-          showToast(`Erro ao excluir alguns registros (${errorCount} falhas)`, 'error');
-        }
-        
-        confirmDiv.remove();
-      });
-    });
-
-    // Back to Components
-    document.getElementById('back-to-components').addEventListener('click', () => {
-      colorSelectionView.classList.add('hidden');
-      componentOptions.classList.remove('hidden');
-      document.getElementById('components-list').innerHTML = '';
-      document.getElementById('components-empty').classList.add('hidden');
-    });
-
-    // Add Aircraft Modal
-    const addAircraftModal = document.getElementById('add-aircraft-modal');
-    const aircraftForm = document.getElementById('aircraft-form');
-
-    document.querySelectorAll('.btn-add-aircraft').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const model = e.currentTarget.dataset.model;
-        document.getElementById('aircraft-model-input').value = model;
-        document.getElementById('aircraft-model-display').textContent = model;
-        document.getElementById('aircraft-prefix').value = '';
-        addAircraftModal.classList.remove('hidden');
-      });
-    });
-
-    document.getElementById('aircraft-modal-close').addEventListener('click', () => addAircraftModal.classList.add('hidden'));
-    document.getElementById('aircraft-modal-backdrop').addEventListener('click', () => addAircraftModal.classList.add('hidden'));
-    document.getElementById('aircraft-modal-cancel').addEventListener('click', () => addAircraftModal.classList.add('hidden'));
-
-    // Validação do prefixo em tempo real
-    document.getElementById('aircraft-prefix').addEventListener('input', function(e) {
-      let value = e.target.value.toUpperCase();
-      // Remove caracteres que não são letras ou hífen
-      value = value.replace(/[^A-Z-]/g, '');
-      // Garante o formato XX-XXX
-      if (value.length > 2 && value.charAt(2) !== '-') {
-        value = value.substring(0, 2) + '-' + value.substring(2);
-      }
-      // Remove hífens extras
-      const parts = value.split('-');
-      if (parts.length > 2) {
-        value = parts[0] + '-' + parts.slice(1).join('');
-      }
-      // Limita o tamanho
-      if (value.length > 6) {
-        value = value.substring(0, 6);
-      }
-      e.target.value = value;
-    });
-
-    aircraftForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (isSubmitting) return;
-      isSubmitting = true;
-      
-      const submitBtn = document.getElementById('aircraft-submit-btn');
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Cadastrando...';
-      
-      const prefix = document.getElementById('aircraft-prefix').value.toUpperCase().trim();
-      const model = document.getElementById('aircraft-model-input').value;
-      
-      const dataRecords = getDataRecords();
-      if (dataRecords.find(r => r.aircraft_prefix === prefix && r.aircraft_model === model)) {
-        showToast('Aeronave já cadastrada!', 'error');
-        isSubmitting = false;
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Cadastrar';
-        return;
-      }
-      
-      const result = await createRecord({
-        type: 'rodend_aircraft',
-        username: '',
-        password: '',
-        needs_password_change: false,
-        aircraft_prefix: prefix,
-        aircraft_model: model,
-        component_type: '_aircraft_marker',
-        component_color: '',
-        measure1_name: '',
-        measure1_part_number: '',
-        measure1_serial_number: '',
-        measure1_current: 0,
-        measure1_max: 0,
-        measure1_alert: 80,
-        measure2_name: '',
-        measure2_part_number: '',
-        measure2_serial_number: '',
-        measure2_current: 0,
-        measure2_max: 0,
-        measure2_alert: 80,
-        link_serial_number: '',
-        last_inspection_date: new Date().toISOString(),
-        inspection_history: '',
-        notes: '',
-        created_by: currentUser.username,
-        modified_by: '',
-        created_at: new Date().toISOString(),
-        modified_at: ''
-      });
-      
-      if (result.isOk) {
-        showToast(`Aeronave ${prefix} cadastrada com sucesso!`, 'success');
-        addAircraftModal.classList.add('hidden');
-        aircraftForm.reset();
-      } else {
-        showToast('Erro ao cadastrar aeronave', 'error');
-      }
-      
-      isSubmitting = false;
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Cadastrar';
-    });
-
-    // Component Modal
-    const componentModal = document.getElementById('component-modal');
-    const componentForm = document.getElementById('component-form');
-
-    document.getElementById('component-modal-close').addEventListener('click', () => componentModal.classList.add('hidden'));
-    document.getElementById('component-modal-backdrop').addEventListener('click', () => componentModal.classList.add('hidden'));
-    document.getElementById('component-modal-cancel').addEventListener('click', () => componentModal.classList.add('hidden'));
-
-    document.getElementById('add-component-btn').addEventListener('click', () => openComponentForm());
-
-    componentForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (isSubmitting) return;
-      isSubmitting = true;
-      
-      const submitBtn = document.getElementById('component-submit-btn');
-      const editId = document.getElementById('edit-component-id').value;
-      const isEdit = !!editId;
-      submitBtn.disabled = true;
-      submitBtn.textContent = isEdit ? 'Salvando...' : 'Cadastrando...';
-      
-      const config = COMPONENT_CONFIG[currentAircraft.model];
-      const componentConfig = config[currentComponentType];
-      const measures = componentConfig.measures;
-      
-      const existingRecord = isEdit ? allRecords.find(r => r.__backendId === editId) : null;
-      const hasHistory = existingRecord && existingRecord.inspection_history && existingRecord.inspection_history !== '[]';
-      const isQuickUpdate = hasHistory && !document.getElementById('full-form-fields').classList.contains('hidden') === false;
-      
-      // Get measurement values
-      let measure1_current, measure2_current, inspection_date;
-      
-      if (isQuickUpdate && document.querySelector('input[name="sn-change"]:checked').value === 'no') {
-        // Quick update - only new measurements
-        const selectedUnit = document.querySelector('input[name="unit"]:checked').value;
-        measure1_current = parseFloat(document.getElementById('quick-measure1').value);
-        measure2_current = parseFloat(document.getElementById('quick-measure2').value);
-        
-        if (selectedUnit === 'mm') {
-          measure1_current = mmToInch(measure1_current);
-          measure2_current = mmToInch(measure2_current);
-        }
-        
-        inspection_date = document.getElementById('quick-inspection-date').value;
-      } else {
-        // Full form - all fields
-        const selectedUnit = document.querySelector('input[name="unit"]:checked').value;
-        measure1_current = parseFloat(document.getElementById('measure1-current').value);
-        measure2_current = parseFloat(document.getElementById('measure2-current').value);
-        
-        if (selectedUnit === 'mm') {
-          measure1_current = mmToInch(measure1_current);
-          measure2_current = mmToInch(measure2_current);
-        }
-        
-        inspection_date = document.getElementById('inspection-date').value;
-      }
-      
-      const inspection_date_iso = new Date(inspection_date + 'T00:00:00').toISOString();
-      const limits = MAX_CLEARANCE[currentAircraft.model][currentComponentType];
-      const measure1_max = limits.max_inch;
-      const measure2_max = limits.max_inch;
-
-      let inspectionHistory = [];
-      if (existingRecord && existingRecord.inspection_history) {
-        try {
-          inspectionHistory = JSON.parse(existingRecord.inspection_history);
-        } catch (e) {
-          inspectionHistory = [];
-        }
-      }
-
-      inspectionHistory.unshift({
-        date: inspection_date_iso,
-        measure1: measure1_current,
-        measure1_max: measure1_max,
-        measure2: measure2_current,
-        measure2_max: measure2_max
-      });
-
-      if (inspectionHistory.length > 3) {
-        inspectionHistory = inspectionHistory.slice(0, 3);
-      }
-      
-      // Prepare data object
-      let data;
-      
-      if (isQuickUpdate && document.querySelector('input[name="sn-change"]:checked').value === 'no') {
-        // Keep existing P/N and S/N, only update measurements
-        data = {
-          type: 'rodend_component',
-          username: '',
-          password: '',
-          needs_password_change: false,
-          aircraft_prefix: currentAircraft.prefix,
-          aircraft_model: currentAircraft.model,
-          component_type: currentComponentType,
-          component_color: document.getElementById('component-color').value,
-          measure1_name: measures[0],
-          measure1_part_number: existingRecord.measure1_part_number,
-          measure1_serial_number: existingRecord.measure1_serial_number,
-          measure1_current: measure1_current,
-          measure1_max: measure1_max,
-          measure1_alert: existingRecord.measure1_alert,
-          measure2_name: measures[1],
-          measure2_part_number: existingRecord.measure2_part_number,
-          measure2_serial_number: existingRecord.measure2_serial_number,
-          measure2_current: measure2_current,
-          measure2_max: measure2_max,
-          measure2_alert: existingRecord.measure2_alert,
-          link_serial_number: existingRecord.link_serial_number,
-          last_inspection_date: inspection_date_iso,
-          inspection_history: JSON.stringify(inspectionHistory),
-          notes: existingRecord.notes || '',
-          created_by: existingRecord.created_by,
-          modified_by: currentUser.username,
-          created_at: existingRecord.created_at,
-          modified_at: new Date().toISOString()
-        };
-      } else {
-        // Full form data (new component or S/N changed)
-        let measure1_pn, measure2_pn;
-        if (componentConfig.singleSerial) {
-          const singlePN = document.getElementById('single-pn').value;
-          measure1_pn = singlePN;
-          measure2_pn = singlePN;
-        } else {
-          measure1_pn = document.getElementById('measure1-pn').value;
-          measure2_pn = document.getElementById('measure2-pn').value;
-        }
-        
-        data = {
-          type: 'rodend_component',
-          username: '',
-          password: '',
-          needs_password_change: false,
-          aircraft_prefix: currentAircraft.prefix,
-          aircraft_model: currentAircraft.model,
-          component_type: currentComponentType,
-          component_color: document.getElementById('component-color').value,
-          measure1_name: measures[0],
-          measure1_part_number: measure1_pn,
-          measure1_serial_number: componentConfig.singleSerial ? '' : (document.getElementById('measure1-serial').value || ''),
-          measure1_current: measure1_current,
-          measure1_max: measure1_max,
-          measure1_alert: parseInt(document.getElementById('measure1-alert').value),
-          measure2_name: measures[1],
-          measure2_part_number: measure2_pn,
-          measure2_serial_number: componentConfig.singleSerial ? '' : (document.getElementById('measure2-serial').value || ''),
-          measure2_current: measure2_current,
-          measure2_max: measure2_max,
-          measure2_alert: parseInt(document.getElementById('measure2-alert').value),
-          link_serial_number: componentConfig.singleSerial ? (document.getElementById('link-serial').value || '') : '',
-          last_inspection_date: inspection_date_iso,
-          inspection_history: JSON.stringify(inspectionHistory),
-          notes: document.getElementById('notes').value || '',
-          created_by: isEdit ? existingRecord.created_by : currentUser.username,
-          modified_by: isEdit ? currentUser.username : '',
-          created_at: isEdit ? existingRecord.created_at : new Date().toISOString(),
-          modified_at: isEdit ? new Date().toISOString() : ''
-        };
-      }
-      
-      let result;
-      if (isEdit) {
-        result = await updateRecord({ ...existingRecord, ...data });
-      } else {
-        result = await createRecord(data);
-      }
-      
-      if (result.isOk) {
-        showToast(isEdit ? 'Componente atualizado!' : 'Componente cadastrado!', 'success');
-        componentModal.classList.add('hidden');
-        componentForm.reset();
-        if (!colorSelectionView.classList.contains('hidden')) {
-          showComponentDetails(currentComponentType);
-        }
-      } else {
-        showToast('Erro ao salvar componente', 'error');
-      }
-      
-      isSubmitting = false;
-      submitBtn.disabled = false;
-      submitBtn.textContent = isEdit ? 'Salvar Alterações' : 'Cadastrar';
-    });
-
-    // Unit Selection Event Listeners
-    document.querySelectorAll('.unit-radio').forEach(radio => {
-      radio.addEventListener('change', updateUnitSelection);
-    });
-
-    // S/N Change Handler
-    function handleSNChange() {
-      const snChange = document.querySelector('input[name="sn-change"]:checked').value;
-      const fullFormFields = document.getElementById('full-form-fields');
-      const quickUpdateFields = document.getElementById('quick-update-fields');
-      const snOptions = document.querySelectorAll('.sn-change-option');
-      const config = COMPONENT_CONFIG[currentAircraft.model][currentComponentType];
-      
-      snOptions.forEach((opt, idx) => {
-        const radio = document.querySelectorAll('.sn-change-radio')[idx];
-        if (radio.checked) {
-          opt.style.borderColor = 'rgb(59, 130, 246)';
-          opt.style.background = 'rgba(59, 130, 246, 0.1)';
-        } else {
-          opt.style.borderColor = 'transparent';
-          opt.style.background = 'rgba(30, 41, 59, 0.6)';
-        }
-      });
-      
-      if (snChange === 'yes') {
-        // Show full form to change S/N and P/N
-        fullFormFields.classList.remove('hidden');
-        quickUpdateFields.classList.add('hidden');
-      } else {
-        // Show only measurements
-        fullFormFields.classList.add('hidden');
-        quickUpdateFields.classList.remove('hidden');
-        
-        // Update quick form titles
-        document.getElementById('quick-measure1-title').textContent = config.measures[0];
-        document.getElementById('quick-measure2-title').textContent = config.measures[1];
-      }
-    }
-
-    // S/N Change Event Listeners
-    document.querySelectorAll('.sn-change-radio').forEach(radio => {
-      radio.addEventListener('change', handleSNChange);
-    });
-
-    // ========== INITIALIZATION ==========
-    const defaultConfig = {
-      main_title: 'Controle de Folga ROD END',
-      subtitle: 'Sistema de Monitoramento de Helicópteros'
-    };
-
-    async function onConfigChange(config) {
-      const title = config.main_title || defaultConfig.main_title;
-      const subtitle = config.subtitle || defaultConfig.subtitle;
-      
-      document.getElementById('login-title').textContent = title;
-      document.getElementById('login-subtitle').textContent = subtitle;
-      document.getElementById('dashboard-title').textContent = title;
-      document.getElementById('dashboard-subtitle').textContent = subtitle;
-    }
-
-    async function init() {
-      await onConfigChange(defaultConfig);
       try {
-        await loadRecords();
+        const username = document.getElementById('new-username').value.trim();
+        if (!username) {
+          showToast('Informe o nome do usuário.', 'error');
+          return;
+        }
+        
+        if (username === ADMIN_USER || getUserRecords().find(u => u.username === username)) {
+          showToast('Usuário já existe!', 'error');
+          return;
+        }
+        
+        const result = await createRecord({
+          type: 'rodend_user',
+          username: username,
+          password: DEFAULT_PASSWORD,
+          needs_password_change: true,
+          aircraft_prefix: '',
+          aircraft_model: '',
+          component_type: '',
+          component_color: '',
+          measure1_name: '',
+          measure1_part_number: '',
+          measure1_serial_number: '',
+          measure1_current: 0,
+          measure1_max: 0,
+          measure1_alert: 0,
+          measure2_name: '',
+          measure2_part_number: '',
+          measure2_serial_number: '',
+          measure2_current: 0,
+          measure2_max: 0,
+          measure2_alert: 0,
+          link_serial_number: '',
+          last_inspection_date: '',
+          inspection_history: '',
+          notes: '',
+          created_by: currentUser.username,
+          modified_by: '',
+          created_at: new Date().toISOString(),
+          modified_at: ''
+        });
+        
+        if (result.isOk) {
+          showToast(`Usuário ${username} criado com sucesso!`, 'success');
+          addUserModal.classList.add('hidden');
+          userForm.reset();
+        } else {
+          showToast(result.error || 'Erro ao criar usuário', 'error');
+        }
       } catch (error) {
         console.error(error);
-        showToast('Erro ao carregar dados do ROD END', 'error');
-      }
-    }
-
-    init();
-  </script>
- </body>
-</html><!doctype html>
-<html lang="pt-BR" class="h-full">
- <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Controle de Folga ROD END</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    body {
-      box-sizing: border-box;
-    }
-    
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-    
-    * {
-      font-family: 'Inter', sans-serif;
-    }
-    
-    .glass-card {
-      background: rgba(15, 23, 42, 0.8);
-      backdrop-filter: blur(20px);
-      border: 1px solid rgba(148, 163, 184, 0.1);
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    }
-    
-    .stat-card {
-      background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%);
-      border: 1px solid rgba(59, 130, 246, 0.2);
-      transition: all 0.3s ease;
-    }
-    
-    .stat-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 30px rgba(59, 130, 246, 0.2);
-    }
-    
-    .aircraft-card {
-      background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
-      border: 1px solid rgba(148, 163, 184, 0.2);
-      transition: all 0.3s ease;
-    }
-    
-    .aircraft-card:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-      border-color: rgba(59, 130, 246, 0.5);
-    }
-    
-    .component-btn {
-      background: linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.9) 100%);
-      border: 2px solid rgba(148, 163, 184, 0.3);
-      transition: all 0.3s ease;
-    }
-    
-    .component-btn:hover {
-      border-color: rgba(59, 130, 246, 0.6);
-      background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(147, 51, 234, 0.2) 100%);
-      transform: translateY(-2px);
-    }
-    
-    .color-badge {
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    }
-    
-    .status-normal { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
-    .status-attention { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
-    .status-critical { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
-    
-    @keyframes slideIn {
-      from {
-        opacity: 0;
-        transform: translateY(20px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-    
-    .animate-slide-in {
-      animation: slideIn 0.4s ease-out;
-    }
-    
-    .input-field {
-      background: rgba(30, 41, 59, 0.6);
-      border: 1px solid rgba(148, 163, 184, 0.2);
-      transition: all 0.3s ease;
-    }
-    
-    .input-field:focus {
-      background: rgba(30, 41, 59, 0.8);
-      border-color: rgba(59, 130, 246, 0.5);
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-      outline: none;
-    }
-    
-    .btn-primary {
-      background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
-      transition: all 0.3s ease;
-    }
-    
-    .btn-primary:hover {
-      background: linear-gradient(135deg, #2563eb 0%, #0891b2 100%);
-      box-shadow: 0 10px 30px rgba(59, 130, 246, 0.4);
-      transform: translateY(-2px);
-    }
-    
-    .btn-primary:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-    }
-    
-    .toast {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      padding: 16px 24px;
-      border-radius: 12px;
-      color: white;
-      font-weight: 500;
-      z-index: 9999;
-      animation: slideIn 0.3s ease-out;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-    }
-    
-    .toast.success {
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-    }
-    
-    .toast.error {
-      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-    }
-    
-    .hidden {
-      display: none !important;
-    }
-    
-    @media print {
-      body * {
-        visibility: hidden;
-      }
-      
-      #print-container, #print-container * {
-        visibility: visible !important;
-      }
-      
-      #print-container {
-        position: absolute !important;
-        left: 0 !important;
-        top: 0 !important;
-        width: 100% !important;
-        background: white !important;
-        color: black !important;
-      }
-      
-      .no-print {
-        display: none !important;
-      }
-      
-      @page {
-        margin: 1.5cm;
-        size: A4 portrait;
-      }
-      
-      table {
-        page-break-inside: auto;
-      }
-      
-      tr {
-        page-break-inside: avoid;
-        page-break-after: auto;
-      }
-      
-      thead {
-        display: table-header-group;
-      }
-    }
-    
-    .progress-bar {
-      height: 8px;
-      background: rgba(148, 163, 184, 0.2);
-      border-radius: 999px;
-      overflow: hidden;
-    }
-    
-    .progress-fill {
-      height: 100%;
-      transition: width 0.3s ease, background 0.3s ease;
-      border-radius: 999px;
-    }
-    
-    .modal-backdrop {
-      background: rgba(0, 0, 0, 0.7);
-      backdrop-filter: blur(8px);
-    }
-    
-    .batman-zoom {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      z-index: 9999;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      animation: batmanAppear 0.4s ease-out;
-    }
-    
-    .batman-backdrop {
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(circle at center, transparent 0%, transparent 20%, rgba(0, 0, 0, 0.95) 60%);
-      backdrop-filter: blur(8px);
-    }
-    
-    .batman-content {
-      position: relative;
-      width: 400px;
-      max-width: 90%;
-      background: linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.98) 100%);
-      border: 2px solid rgba(59, 130, 246, 0.5);
-      border-radius: 24px;
-      padding: 32px;
-      box-shadow: 0 0 80px rgba(59, 130, 246, 0.4), 0 0 160px rgba(147, 51, 234, 0.2);
-      animation: batmanZoomIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-    }
-    
-    @keyframes batmanAppear {
-      from {
-        opacity: 0;
-      }
-      to {
-        opacity: 1;
-      }
-    }
-    
-    @keyframes batmanZoomIn {
-      from {
-        opacity: 0;
-        transform: scale(0.3);
-      }
-      to {
-        opacity: 1;
-        transform: scale(1);
-      }
-    }
-  </style>
-  <style>@view-transition { navigation: auto; }</style>
- </head>
- <body class="h-full w-full overflow-auto bg-gradient-to-br from-slate-900 via-blue-900 to-purple-900"><!-- ========== LOGIN SCREEN ========== -->
-  <div id="login-screen" class="min-h-full w-full flex items-center justify-center p-4">
-   <div class="glass-card rounded-3xl p-8 w-full max-w-md animate-slide-in">
-    <div class="text-center mb-8">
-     <div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center">
-      <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-      </svg>
-     </div>
-     <h1 id="login-title" class="text-3xl font-bold text-white mb-2">Controle de Folga ROD END</h1>
-     <p id="login-subtitle" class="text-slate-300">Sistema de Monitoramento de Helicópteros</p>
-    </div>
-    <form id="login-form" class="space-y-5">
-     <div><label for="username" class="block text-sm font-medium text-slate-300 mb-2">Usuário</label> <input type="text" id="username" required class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Digite seu usuário">
-     </div>
-     <div><label for="password" class="block text-sm font-medium text-slate-300 mb-2">Senha</label> <input type="password" id="password" required class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Digite sua senha">
-     </div>
-     <div id="error-message" class="hidden bg-red-500/20 border border-red-500 text-red-300 px-4 py-3 rounded-lg text-sm">
-      Usu  rio ou senha incorretos
-     </div><button type="submit" class="btn-primary w-full py-3 rounded-lg font-semibold text-white"> ENTRAR </button>
-    </form>
-   </div>
-  </div><!-- ========== CHANGE PASSWORD SCREEN ========== -->
-  <div id="change-password-screen" class="hidden min-h-full w-full flex items-center justify-center p-4">
-   <div class="glass-card rounded-3xl p-8 w-full max-w-md animate-slide-in">
-    <div class="text-center mb-8">
-     <div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
-      <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-      </svg>
-     </div>
-     <h1 class="text-3xl font-bold text-white mb-2">Alterar Senha</h1>
-     <p class="text-slate-300">Por segurança, altere sua senha padrão</p>
-    </div>
-    <form id="change-password-form" class="space-y-5">
-     <div><label for="new-password" class="block text-sm font-medium text-slate-300 mb-2">Nova Senha</label> <input type="password" id="new-password" required minlength="6" class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Mínimo 6 caracteres">
-     </div>
-     <div><label for="confirm-password" class="block text-sm font-medium text-slate-300 mb-2">Confirmar Senha</label> <input type="password" id="confirm-password" required minlength="6" class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Digite a senha novamente">
-     </div>
-     <div id="password-error" class="hidden bg-red-500/20 border border-red-500 text-red-300 px-4 py-3 rounded-lg text-sm">
-      <p></p>
-     </div><button type="submit" class="btn-primary w-full py-3 rounded-lg font-semibold text-white"> ALTERAR SENHA </button>
-    </form>
-   </div>
-  </div><!-- ========== MAIN APP ========== -->
-  <div id="main-app" class="hidden min-h-full w-full"><!-- ========== DASHBOARD VIEW ========== -->
-   <div id="dashboard-view" class="w-full p-4 md:p-6 lg:p-8">
-    <div class="max-w-7xl mx-auto"><!-- Header -->
-     <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-8 gap-4">
-      <div>
-       <h1 id="dashboard-title" class="text-3xl md:text-4xl font-bold text-white mb-2">Controle de Folga ROD END</h1>
-       <p id="dashboard-subtitle" class="text-slate-300">Sistema de Monitoramento de Helicópteros</p>
-      </div>
-      <div class="flex items-center gap-3">
-       <div class="glass-card px-4 py-2 rounded-lg">
-        <svg class="w-4 h-4 inline text-slate-400 mr-2" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-        </svg><span id="user-display" class="text-white font-medium"></span>
-       </div><button id="back-to-monitoring-btn" class="glass-card px-4 py-2 rounded-lg text-white hover:bg-white/10 transition-colors">
-        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-        </svg> Voltar </button><button id="print-report-btn" class="glass-card px-4 py-2 rounded-lg text-white hover:bg-white/10 transition-colors">
-        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-        </svg> Relatório </button> <button id="manage-users-btn" class="hidden glass-card px-4 py-2 rounded-lg text-white hover:bg-white/10 transition-colors">
-        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-        </svg> Usuários </button> <button id="logout-btn" class="glass-card px-4 py-2 rounded-lg text-white hover:bg-white/10 transition-colors"> Sair </button>
-      </div>
-     </div><!-- Stats -->
-     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-      <div class="stat-card rounded-2xl p-6">
-       <div class="flex items-center justify-between">
-        <div>
-         <p class="text-slate-400 text-sm mb-1">Total de Aeronaves</p>
-         <p id="stat-aircraft" class="text-3xl font-bold text-white">0</p>
-        </div>
-        <div class="w-14 h-14 rounded-xl bg-blue-500/20 flex items-center justify-center">
-         <svg class="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-         </svg>
-        </div>
-       </div>
-      </div>
-      <div class="stat-card rounded-2xl p-6">
-       <div class="flex items-center justify-between">
-        <div>
-         <p class="text-slate-400 text-sm mb-1">Componentes</p>
-         <p id="stat-components" class="text-3xl font-bold text-white">0</p>
-        </div>
-        <div class="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center">
-         <svg class="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-         </svg>
-        </div>
-       </div>
-      </div>
-      <div class="stat-card rounded-2xl p-6">
-       <div class="flex items-center justify-between">
-        <div>
-         <p class="text-slate-400 text-sm mb-1">Alertas</p>
-         <p id="stat-alerts" class="text-3xl font-bold text-white">0</p>
-        </div>
-        <div class="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center">
-         <svg class="w-8 h-8 text-amber-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-         </svg>
-        </div>
-       </div>
-      </div>
-     </div><!-- Aircraft Models -->
-     <div class="mb-8">
-      <h2 class="text-2xl font-bold text-white mb-4">Modelos de Aeronaves</h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6"><!-- EC175 -->
-       <div class="glass-card rounded-2xl p-6">
-        <div class="flex items-start justify-between mb-4">
-         <div>
-          <h3 class="text-2xl font-bold text-white mb-1">EC175</h3>
-          <p class="text-slate-400 text-sm">Airbus Helicopters</p>
-         </div>
-         <div class="w-16 h-16 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center">
-          <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-          </svg>
-         </div>
-        </div>
-        <div id="ec175-list" class="space-y-2 mb-4 max-h-60 overflow-y-auto"></div><button class="btn-add-aircraft w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-semibold text-white transition-colors" data-model="EC175"> + Adicionar EC175 </button>
-       </div><!-- AW139 -->
-       <div class="glass-card rounded-2xl p-6">
-        <div class="flex items-start justify-between mb-4">
-         <div>
-          <h3 class="text-2xl font-bold text-white mb-1">AW139</h3>
-          <p class="text-slate-400 text-sm">Leonardo Helicopters</p>
-         </div>
-         <div class="w-16 h-16 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-          <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-          </svg>
-         </div>
-        </div>
-        <div id="aw139-list" class="space-y-2 mb-4 max-h-60 overflow-y-auto"></div><button class="btn-add-aircraft w-full py-3 bg-purple-600 hover:bg-purple-500 rounded-lg font-semibold text-white transition-colors" data-model="AW139"> + Adicionar AW139 </button>
-       </div>
-      </div>
-     </div>
-    </div>
-   </div><!-- ========== USER MANAGEMENT VIEW ========== -->
-   <div id="user-management-view" class="hidden w-full p-4 md:p-6 lg:p-8">
-    <div class="max-w-7xl mx-auto">
-     <div class="flex items-center justify-between mb-8">
-      <div><button id="back-to-dashboard-users" class="text-slate-400 hover:text-white mb-4 flex items-center gap-2 transition-colors">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-        </svg> Voltar </button>
-       <h1 class="text-3xl md:text-4xl font-bold text-white">Gerenciar Usuários</h1>
-      </div><button id="add-user-btn" class="btn-primary px-6 py-3 rounded-lg font-semibold text-white"> + Novo Usuário </button>
-     </div>
-     <div id="users-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
-    </div>
-   </div><!-- ========== AIRCRAFT DETAILS VIEW ========== -->
-   <div id="aircraft-details-view" class="hidden w-full p-4 md:p-6 lg:p-8">
-    <div class="max-w-7xl mx-auto">
-     <div class="flex items-center justify-between mb-8">
-      <div class="flex-1"><button id="back-to-dashboard" class="text-slate-400 hover:text-white mb-4 flex items-center gap-2 transition-colors">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-        </svg> Voltar ao Dashboard </button>
-       <div class="flex items-center gap-4">
-        <h1 id="aircraft-title" class="text-3xl md:text-4xl font-bold text-white"></h1><span id="aircraft-model-badge" class="px-4 py-2 bg-blue-500/20 text-blue-300 rounded-lg font-medium text-sm"></span>
-       </div>
-      </div><button id="delete-aircraft-btn" class="glass-card px-4 py-2 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors"> 🗑️ Excluir Aeronave </button>
-     </div><!-- Component Options -->
-     <div id="component-options" class="space-y-6">
-      <div>
-       <h2 class="text-2xl font-bold text-white mb-4">Selecione o Componente</h2>
-       <div id="component-buttons" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
-      </div>
-     </div><!-- Color Selection View -->
-     <div id="color-selection-view" class="hidden space-y-6">
-      <div class="flex items-center justify-between">
-       <div><button id="back-to-components" class="text-slate-400 hover:text-white mb-4 flex items-center gap-2 transition-colors">
-         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-         </svg> Voltar aos Componentes </button>
-        <h2 id="component-type-title" class="text-2xl font-bold text-white"></h2>
-       </div><button id="add-component-btn" class="btn-primary px-6 py-3 rounded-lg font-semibold text-white"> + Novo Componente </button>
-      </div>
-      <div id="components-list" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"></div>
-      <div id="components-empty" class="hidden text-center py-12">
-       <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-slate-700/50 flex items-center justify-center">
-        <svg class="w-10 h-10 text-slate-500" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-        </svg>
-       </div>
-       <p class="text-slate-400 text-lg">Nenhum componente cadastrado</p>
-       <p class="text-slate-500 text-sm mt-2">Clique em "+ Novo Componente" para adicionar</p>
-      </div>
-     </div>
-    </div>
-   </div>
-  </div><!-- ========== ADD AIRCRAFT MODAL ========== -->
-  <div id="add-aircraft-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
-   <div id="aircraft-modal-backdrop" class="modal-backdrop absolute inset-0"></div>
-   <div class="relative glass-card rounded-2xl p-6 max-w-md w-full animate-slide-in">
-    <div class="flex items-center justify-between mb-6">
-     <h3 class="text-2xl font-bold text-white">Nova Aeronave</h3><button id="aircraft-modal-close" class="text-slate-400 hover:text-white transition-colors">
-      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-      </svg></button>
-    </div>
-    <form id="aircraft-form" class="space-y-4"><input type="hidden" id="aircraft-model-input">
-     <div><label class="block text-sm font-medium text-slate-300 mb-2">Modelo</label>
-      <div class="input-field px-4 py-3 rounded-lg"><span id="aircraft-model-display" class="text-white font-semibold"></span>
-      </div>
-     </div>
-     <div><label for="aircraft-prefix" class="block text-sm font-medium text-slate-300 mb-2">Prefixo da Aeronave</label> <input type="text" id="aircraft-prefix" required class="input-field w-full px-4 py-3 rounded-lg text-white uppercase" placeholder="Ex: PR-OOC, PR-OTS" pattern="[A-Z]{2}-[A-Z]{3}" maxlength="6">
-      <p class="text-slate-400 text-xs mt-1">Formato: XX-XXX (apenas letras e hífen)</p>
-     </div>
-     <div class="flex items-center gap-3 pt-4"><button type="button" id="aircraft-modal-cancel" class="flex-1 px-4 py-3 bg-slate-700/50 hover:bg-slate-600/50 rounded-lg font-medium transition-colors"> Cancelar </button> <button type="submit" id="aircraft-submit-btn" class="flex-1 btn-primary px-4 py-3 rounded-lg font-semibold"> Cadastrar </button>
-     </div>
-    </form>
-   </div>
-  </div><!-- ========== ADD USER MODAL ========== -->
-  <div id="add-user-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
-   <div id="user-modal-backdrop" class="modal-backdrop absolute inset-0"></div>
-   <div class="relative glass-card rounded-2xl p-6 max-w-md w-full animate-slide-in">
-    <div class="flex items-center justify-between mb-6">
-     <h3 class="text-2xl font-bold text-white">Novo Usuário</h3><button id="user-modal-close" class="text-slate-400 hover:text-white transition-colors">
-      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-      </svg></button>
-    </div>
-    <form id="user-form" class="space-y-4">
-     <div><label for="new-username" class="block text-sm font-medium text-slate-300 mb-2">Nome de Usuário</label> <input type="text" id="new-username" required class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Digite o nome do usuário">
-     </div>
-     <div class="bg-blue-500/20 border border-blue-500/50 rounded-lg p-3">
-      <p class="text-blue-300 text-sm">
-       <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-       </svg> Senha padrão: <strong>123456</strong><br>
-        O usuário deverá alterar no primeiro acesso.</p>
-     </div>
-     <div class="flex items-center gap-3 pt-4"><button type="button" id="user-modal-cancel" class="flex-1 px-4 py-3 bg-slate-700/50 hover:bg-slate-600/50 rounded-lg font-medium transition-colors"> Cancelar </button> <button type="submit" id="user-submit-btn" class="flex-1 btn-primary px-4 py-3 rounded-lg font-semibold"> Criar Usuário </button>
-     </div>
-    </form>
-   </div>
-  </div><!-- ========== COMPONENT MODAL ========== -->
-  <div id="component-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
-   <div id="component-modal-backdrop" class="modal-backdrop absolute inset-0"></div>
-   <div class="relative glass-card rounded-2xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto animate-slide-in">
-    <div class="flex items-center justify-between mb-6">
-     <h3 id="component-modal-title" class="text-2xl font-bold text-white">Novo Componente</h3><button id="component-modal-close" class="text-slate-400 hover:text-white transition-colors">
-      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-      </svg></button>
-    </div>
-    <form id="component-form" class="space-y-6"><input type="hidden" id="edit-component-id"> <!-- Component Info -->
-     <div class="glass-card rounded-lg p-4 flex items-center gap-4">
-      <div class="flex-1">
-       <p class="text-slate-400 text-sm mb-1">Componente</p>
-       <p id="modal-component-type" class="text-white font-bold text-lg"></p>
-      </div>
-      <div>
-       <p class="text-slate-400 text-sm mb-1">Cor</p>
-       <div class="flex items-center gap-2">
-        <div id="modal-color-badge" class="color-badge" style="width: 32px; height: 32px;"></div><span id="modal-color-name" class="text-white font-bold"></span>
-       </div><input type="hidden" id="component-color" required>
-      </div>
-     </div><!-- Unit Selection -->
-     <div class="glass-card rounded-lg p-4"><label class="block text-sm font-medium text-slate-300 mb-3">Unidade de Medida</label>
-      <div class="flex gap-3"><label class="flex-1 cursor-pointer"> <input type="radio" name="unit" value="inch" class="hidden unit-radio" checked>
-        <div class="unit-option input-field px-4 py-3 rounded-lg text-center transition-all border-2 border-blue-500"><span class="text-white font-semibold">📏 Polegadas</span>
-        </div></label> <label class="flex-1 cursor-pointer"> <input type="radio" name="unit" value="mm" class="hidden unit-radio">
-        <div class="unit-option input-field px-4 py-3 rounded-lg text-center transition-all border-2 border-transparent"><span class="text-white font-semibold">📐 Milímetros</span>
-        </div></label>
-      </div>
-     </div><!-- Limit Display -->
-     <div id="limit-display" class="glass-card rounded-lg p-4 bg-blue-500/10 border border-blue-500/30">
-      <div class="flex items-start gap-3">
-       <div class="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
-        <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-       </div>
-       <div>
-        <p class="text-blue-300 font-semibold text-sm mb-1">Limite Máximo de Folga</p>
-        <p id="limit-text" class="text-white font-bold text-lg"></p>
-       </div>
-      </div>
-     </div><!-- S/N Change Question (only for components with history) -->
-     <div id="sn-question-container" class="hidden glass-card rounded-lg p-4"><label class="block text-sm font-medium text-slate-300 mb-3">O Part Number e Serial Number continuam os mesmos?</label>
-      <div id="current-sn-info" class="bg-slate-700/30 rounded p-3 mb-3 text-sm"></div>
-      <div class="flex gap-3"><label class="flex-1 cursor-pointer"> <input type="radio" name="sn-change" value="no" class="hidden sn-change-radio" checked>
-        <div class="sn-change-option input-field px-4 py-3 rounded-lg text-center transition-all border-2 border-blue-500"><span class="text-white font-semibold">✓ Sim, mantém o mesmo</span>
-        </div></label> <label class="flex-1 cursor-pointer"> <input type="radio" name="sn-change" value="yes" class="hidden sn-change-radio">
-        <div class="sn-change-option input-field px-4 py-3 rounded-lg text-center transition-all border-2 border-transparent"><span class="text-white font-semibold">✗ Não, foi trocado</span>
-        </div></label>
-      </div>
-     </div><!-- Quick Update Fields (only measurements) -->
-     <div id="quick-update-fields" class="hidden space-y-4">
-      <div>
-       <h4 id="quick-measure1-title" class="text-lg font-bold text-white mb-2"></h4><label for="quick-measure1" class="block text-sm font-medium text-slate-300 mb-2"> Nova Medição (<span class="unit-label">polegadas</span>) </label> <input type="number" id="quick-measure1" step="0.001" min="0" class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Ex: 0.150">
-      </div>
-      <div>
-       <h4 id="quick-measure2-title" class="text-lg font-bold text-white mb-2"></h4><label for="quick-measure2" class="block text-sm font-medium text-slate-300 mb-2"> Nova Medição (<span class="unit-label">polegadas</span>) </label> <input type="number" id="quick-measure2" step="0.001" min="0" class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Ex: 0.150">
-      </div>
-      <div><label for="quick-inspection-date" class="block text-sm font-medium text-slate-300 mb-2">Data da Inspeção</label> <input type="date" id="quick-inspection-date" class="input-field w-full px-4 py-3 rounded-lg text-white">
-      </div>
-     </div><!-- Full Form Fields (shown when S/N changes or new component) -->
-     <div id="full-form-fields" class="space-y-6"><!-- Single Part Number (for Tail Rotor Link) -->
-      <div id="single-pn-container" class="hidden"><label for="single-pn" class="block text-sm font-medium text-slate-300 mb-2">Part Number</label> <input type="text" id="single-pn" class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Ex: 332A21-3207-03">
-      </div><!-- Measure 1 -->
-      <div class="space-y-4">
-       <h4 id="measure1-title" class="text-lg font-bold text-white"></h4>
-       <div id="measure1-pn-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div><label for="measure1-pn" class="block text-sm font-medium text-slate-300 mb-2">Part Number</label> <input type="text" id="measure1-pn" class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Ex: 332A21-3207-03">
-        </div>
-        <div><label for="measure1-serial" class="block text-sm font-medium text-slate-300 mb-2">Serial Number (Opcional)</label> <input type="text" id="measure1-serial" class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Ex: S/N 12345">
-        </div>
-       </div>
-       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div><label for="measure1-current" class="block text-sm font-medium text-slate-300 mb-2"> Medição Atual (<span class="unit-label">polegadas</span>) </label> <input type="number" id="measure1-current" step="0.001" min="0" class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Ex: 0.150">
-        </div>
-        <div><label for="measure1-alert" class="block text-sm font-medium text-slate-300 mb-2">Alerta (%)</label> <input type="number" id="measure1-alert" min="0" max="100" value="80" class="input-field w-full px-4 py-3 rounded-lg text-white">
-        </div>
-       </div>
-      </div><!-- Measure 2 -->
-      <div class="space-y-4">
-       <h4 id="measure2-title" class="text-lg font-bold text-white"></h4>
-       <div id="measure2-pn-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div><label for="measure2-pn" class="block text-sm font-medium text-slate-300 mb-2">Part Number</label> <input type="text" id="measure2-pn" class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Ex: 332A21-3207-03">
-        </div>
-        <div><label for="measure2-serial" class="block text-sm font-medium text-slate-300 mb-2">Serial Number (Opcional)</label> <input type="text" id="measure2-serial" class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Ex: S/N 12345">
-        </div>
-       </div>
-       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div><label for="measure2-current" class="block text-sm font-medium text-slate-300 mb-2"> Medição Atual (<span class="unit-label">polegadas</span>) </label> <input type="number" id="measure2-current" step="0.001" min="0" class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Ex: 0.150">
-        </div>
-        <div><label for="measure2-alert" class="block text-sm font-medium text-slate-300 mb-2">Alerta (%)</label> <input type="number" id="measure2-alert" min="0" max="100" value="80" class="input-field w-full px-4 py-3 rounded-lg text-white">
-        </div>
-       </div>
-      </div><!-- Link Serial (for Tail Rotor Link only) -->
-      <div id="link-serial-container" class="hidden"><label for="link-serial" class="block text-sm font-medium text-slate-300 mb-2">Link Serial Number (Opcional)</label> <input type="text" id="link-serial" class="input-field w-full px-4 py-3 rounded-lg text-white" placeholder="Ex: S/N LINK-001">
-      </div><!-- Inspection Date -->
-      <div><label for="inspection-date" class="block text-sm font-medium text-slate-300 mb-2">Data da Inspeção</label> <input type="date" id="inspection-date" class="input-field w-full px-4 py-3 rounded-lg text-white">
-      </div><!-- Notes -->
-      <div><label for="notes" class="block text-sm font-medium text-slate-300 mb-2">Observações (Opcional)</label> <textarea id="notes" rows="3" class="input-field w-full px-4 py-3 rounded-lg text-white resize-none" placeholder="Adicione observações sobre o componente..."></textarea>
-      </div>
-     </div>
-     <div class="flex items-center gap-3 pt-4"><button type="button" id="component-modal-cancel" class="flex-1 px-4 py-3 bg-slate-700/50 hover:bg-slate-600/50 rounded-lg font-medium transition-colors"> Cancelar </button> <button type="submit" id="component-submit-btn" class="flex-1 btn-primary px-4 py-3 rounded-lg font-semibold"> Cadastrar </button>
-     </div>
-    </form>
-   </div>
-  </div><!-- ========== PRINT CONTAINER ========== -->
-  <div id="print-container" class="hidden"></div>
-  <script>
-    // ========== GLOBAL STATE ==========
-    let allRecords = [];
-    let currentUser = { username: '', isAdmin: false };
-    let currentAircraft = { prefix: '', model: '' };
-    let currentComponentType = '';
-    let isSubmitting = false;
-
-    // DOM Elements
-    const loginScreen = document.getElementById('login-screen');
-    const changePasswordScreen = document.getElementById('change-password-screen');
-    const mainApp = document.getElementById('main-app');
-    const dashboardView = document.getElementById('dashboard-view');
-    const userManagementView = document.getElementById('user-management-view');
-    const aircraftDetailsView = document.getElementById('aircraft-details-view');
-    const componentOptions = document.getElementById('component-options');
-    const colorSelectionView = document.getElementById('color-selection-view');
-
-    // ========== CONSTANTS ==========
-    const ADMIN_USER = 'admin';
-    const ADMIN_PASSWORD = 'admin123';
-    const DEFAULT_PASSWORD = '123456';
-    
-    const MAX_CLEARANCE = {
-      'EC175': {
-        'Main Rotor Link': { max_mm: 0.25, max_inch: 0.0098 },
-        'Tail Rotor Link': { max_mm: 0.25, max_inch: 0.0098 },
-        'Tail Rotor Damper': { max_mm: 0.25, max_inch: 0.0098 }
-      },
-      'AW139': {
-        'Main Rotor Link': { max_mm: 0.2, max_inch: 0.008 },
-        'Tail Rotor Link': { max_mm: 0.2, max_inch: 0.007874 }
-      }
-    };
-
-    const COMPONENT_CONFIG = {
-      'EC175': {
-        'Main Rotor Link': {
-          measures: ['Rod End Upper', 'Rod End Lower'],
-          colors: ['Yellow', 'Blue', 'White', 'Black', 'Red'],
-          partNumbers: {
-            'Rod End Upper': 'M623G30T1001 (P/N 12-13357P)',
-            'Rod End Lower': 'M623G30T1003 (P/N 12-13369P)'
-          }
-        },
-        'Tail Rotor Link': {
-          measures: ['Inboard', 'Outboard'],
-          colors: ['Yellow', 'Black', 'Red'],
-          partNumbers: {
-            'Inboard': 'M642A10T1005 (P/N 15-13690P)',
-            'Outboard': 'M642A10T1005 (P/N 15-13690P)'
-          },
-          singleSerial: true
-        },
-        'Tail Rotor Damper': {
-          measures: ['RH DAMPER ROD END', 'LH DAMPER ROD END'],
-          colors: ['Yellow', 'Black', 'Red'],
-          partNumbers: {
-            'RH DAMPER ROD END': 'M642A20T0001 (P/N 12-13429P)',
-            'LH DAMPER ROD END': 'M642A20T0002 (P/N 12-13430P)'
-          }
-        }
-      },
-      'AW139': {
-        'Main Rotor Link': {
-          measures: ['Upper Rod End', 'Lower Rod End'],
-          colors: ['Yellow', 'Blue', 'Red', 'Black', 'White'],
-          partNumbers: {
-            'Upper Rod End': '3G6230A01133',
-            'Lower Rod End': '3G6230A03633'
-          }
-        },
-        'Tail Rotor Link': {
-          measures: ['Upper Rod End', 'Lower Rod End'],
-          colors: ['Yellow', 'Red', 'White', 'Blue'],
-          partNumbers: {
-            'Upper Rod End': '3G6430A00832',
-            'Lower Rod End': '3G6430A00932'
-          }
-        }
-      }
-    };
-
-    const API_BASE = '/api/rodend';
-
-    function slugify(text) {
-      return String(text || '')
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .replace(/[^a-zA-Z0-9]+/g, '_')
-        .replace(/^_+|_+$/g, '')
-        .toLowerCase();
-    }
-
-    function normalizeRecord(record) {
-      const normalized = { ...(record || {}) };
-      normalized.type = normalized.type || normalized.record_type || '';
-      normalized.record_type = normalized.record_type || normalized.type || '';
-      normalized.id = normalized.id || normalized.__backendId || '';
-      normalized.__backendId = normalized.__backendId || normalized.id || '';
-      return normalized;
-    }
-
-    function buildRodendId(type, payload = {}) {
-      const now = Date.now();
-      const rand = Math.random().toString(36).slice(2, 8);
-
-      if (type === 'rodend_user') {
-        return `roduser_${slugify(payload.username) || now}_${rand}`;
-      }
-
-      if (type === 'rodend_aircraft') {
-        return `rodair_${slugify(payload.aircraft_model)}_${slugify(payload.aircraft_prefix)}_${rand}`;
-      }
-
-      if (type === 'rodend_component') {
-        return `rodcomp_${slugify(payload.aircraft_prefix)}_${slugify(payload.aircraft_model)}_${slugify(payload.component_type)}_${slugify(payload.component_color)}_${rand}`;
-      }
-
-      return `rodrec_${now}_${rand}`;
-    }
-
-    function preparePayload(payload = {}, forcedId = null) {
-      const prepared = { ...(payload || {}) };
-      prepared.type = prepared.type || prepared.record_type || '';
-      delete prepared.record_type;
-      delete prepared.__backendId;
-
-      if (forcedId) {
-        prepared.id = forcedId;
-      } else if (!prepared.id) {
-        prepared.id = buildRodendId(prepared.type, prepared);
-      }
-
-      return prepared;
-    }
-
-    async function apiRequest(path, options = {}) {
-      const response = await fetch(`${API_BASE}${path}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          ...(options.headers || {})
-        },
-        ...options
-      });
-
-      let data = null;
-      try {
-        data = await response.json();
-      } catch (e) {
-        data = null;
-      }
-
-      if (!response.ok) {
-        const message = data?.error || data?.message || 'Erro na comunicação com o servidor';
-        throw new Error(message);
-      }
-
-      return data;
-    }
-
-    function refreshUiAfterDataChange() {
-      updateStats();
-      renderAircraftCards();
-      if (!aircraftDetailsView.classList.contains('hidden')) {
-        renderComponentOptions();
-        if (!colorSelectionView.classList.contains('hidden') && currentComponentType) {
-          renderComponentsForType(currentComponentType);
-        }
-      }
-      if (!userManagementView.classList.contains('hidden')) {
-        renderUsersList();
-      }
-    }
-
-    async function loadRecords() {
-      const data = await apiRequest('/records', { method: 'GET' });
-      allRecords = Array.isArray(data) ? data.map(normalizeRecord) : [];
-      refreshUiAfterDataChange();
-      return allRecords;
-    }
-
-    async function createRecord(payload) {
-      const prepared = preparePayload(payload);
-      const data = await apiRequest('/records', {
-        method: 'POST',
-        body: JSON.stringify(prepared)
-      });
-      await loadRecords();
-      return {
-        isOk: true,
-        item: normalizeRecord(data?.item || prepared)
-      };
-    }
-
-    async function updateRecord(payload) {
-      const prepared = preparePayload(payload, payload?.id || payload?.__backendId);
-      const data = await apiRequest(`/records/${encodeURIComponent(prepared.id)}`, {
-        method: 'PUT',
-        body: JSON.stringify(prepared)
-      });
-      await loadRecords();
-      return {
-        isOk: true,
-        item: normalizeRecord(data?.item || prepared)
-      };
-    }
-
-    async function deleteRecord(payload) {
-      const recordId = payload?.id || payload?.__backendId;
-      await apiRequest(`/records/${encodeURIComponent(recordId)}`, {
-        method: 'DELETE'
-      });
-      await loadRecords();
-      return { isOk: true };
-    }
-
-    // ========== AUTHENTICATION ==========
-    async function authenticateUser(username, password) {
-      try {
-        const data = await apiRequest('/login', {
-          method: 'POST',
-          body: JSON.stringify({ username, password })
-        });
-
-        return {
-          success: true,
-          isAdmin: !!data?.user?.isAdmin,
-          needsPasswordChange: !!data?.user?.needsPasswordChange,
-          user: data?.user || null
-        };
-      } catch (error) {
-        return {
-          success: false,
-          isAdmin: false,
-          needsPasswordChange: false,
-          user: null,
-          error: error.message
-        };
-      }
-    }
-
-    // ========== UNIT CONVERSION ==========
-    function mmToInch(mm) {
-      return mm / 25.4;
-    }
-
-    function inchToMm(inch) {
-      return inch * 25.4;
-    }
-
-    function updateUnitSelection() {
-      const selectedUnit = document.querySelector('input[name="unit"]:checked').value;
-      const unitOptions = document.querySelectorAll('.unit-option');
-      const unitLabels = document.querySelectorAll('.unit-label');
-      
-      unitOptions.forEach((opt, idx) => {
-        const radio = document.querySelectorAll('.unit-radio')[idx];
-        if (radio.checked) {
-          opt.style.borderColor = 'rgb(59, 130, 246)';
-          opt.style.background = 'rgba(59, 130, 246, 0.1)';
-        } else {
-          opt.style.borderColor = 'transparent';
-          opt.style.background = 'rgba(30, 41, 59, 0.6)';
-        }
-      });
-      
-      unitLabels.forEach(label => {
-        label.textContent = selectedUnit === 'inch' ? 'polegadas' : 'milímetros';
-      });
-      
-      // Update input step
-      const measure1Input = document.getElementById('measure1-current');
-      const measure2Input = document.getElementById('measure2-current');
-      const quickMeasure1Input = document.getElementById('quick-measure1');
-      const quickMeasure2Input = document.getElementById('quick-measure2');
-      
-      if (selectedUnit === 'mm') {
-        if (measure1Input) measure1Input.step = '0.01';
-        if (measure2Input) measure2Input.step = '0.01';
-        if (quickMeasure1Input) quickMeasure1Input.step = '0.01';
-        if (quickMeasure2Input) quickMeasure2Input.step = '0.01';
-      } else {
-        if (measure1Input) measure1Input.step = '0.001';
-        if (measure2Input) measure2Input.step = '0.001';
-        if (quickMeasure1Input) quickMeasure1Input.step = '0.001';
-        if (quickMeasure2Input) quickMeasure2Input.step = '0.001';
-      }
-      
-      // Update limit display
-      updateLimitDisplay();
-    }
-    
-    function updateLimitDisplay() {
-      const limitText = document.getElementById('limit-text');
-      if (!limitText || !currentAircraft.model || !currentComponentType) return;
-      
-      const selectedUnit = document.querySelector('input[name="unit"]:checked').value;
-      const limits = MAX_CLEARANCE[currentAircraft.model][currentComponentType];
-      
-      if (selectedUnit === 'mm') {
-        limitText.textContent = `< ${limits.max_mm} mm`;
-      } else {
-        limitText.textContent = `< ${limits.max_inch}" (${limits.max_mm} mm)`;
-      }
-    }
-
-    // ========== DATA HELPERS ==========
-    function getUserRecords() {
-      return allRecords.filter(r => r.record_type === 'rodend_user');
-    }
-
-    function getDataRecords() {
-      return allRecords.filter(r => r.record_type === 'rodend_aircraft' || r.record_type === 'rodend_component');
-    }
-
-    function getAircraftList() {
-      const dataRecords = getDataRecords();
-      const aircraftMap = new Map();
-      
-      dataRecords.forEach(record => {
-        if (record.aircraft_prefix && record.aircraft_model) {
-          const key = `${record.aircraft_prefix}_${record.aircraft_model}`;
-          if (!aircraftMap.has(key)) {
-            aircraftMap.set(key, {
-              prefix: record.aircraft_prefix,
-              model: record.aircraft_model
-            });
-          }
-        }
-      });
-      
-      return Array.from(aircraftMap.values());
-    }
-
-    function getComponentsForAircraft(prefix, model) {
-      const dataRecords = getDataRecords();
-      return dataRecords.filter(r => 
-        r.aircraft_prefix === prefix && 
-        r.aircraft_model === model && 
-        r.component_type !== '_aircraft_marker'
-      );
-    }
-
-    function getComponentsByType(prefix, model, type) {
-      return getComponentsForAircraft(prefix, model).filter(c => c.component_type === type);
-    }
-
-    // ========== STATUS CALCULATION ==========
-    function getComponentStatus(component) {
-      const m1Percent = (component.measure1_current / component.measure1_max) * 100;
-      const m2Percent = (component.measure2_current / component.measure2_max) * 100;
-      const maxPercent = Math.max(m1Percent, m2Percent);
-      
-      if (maxPercent >= 100) return { status: 'critical', color: 'Red', label: 'Crítico' };
-      if (maxPercent >= component.measure1_alert) return { status: 'attention', color: 'Yellow', label: 'Atenção' };
-      return { status: 'normal', color: 'Green', label: 'Normal' };
-    }
-
-    // ========== UI HELPERS ==========
-    function showToast(message, type = 'success') {
-      const toast = document.createElement('div');
-      toast.className = `toast ${type}`;
-      toast.textContent = message;
-      document.body.appendChild(toast);
-      
-      setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateY(-20px)';
-        setTimeout(() => toast.remove(), 300);
-      }, 3000);
-    }
-
-    function getColorBadge(color) {
-      const colors = {
-        'Yellow': '🟡',
-        'Green': '🟢',
-        'Blue': '🔵',
-        'Red': '🔴',
-        'Black': '⚫',
-        'White': '⚪'
-      };
-      return colors[color] || '⚪';
-    }
-
-    // ========== STATS UPDATE ==========
-    function updateStats() {
-      const aircraftList = getAircraftList();
-      const dataRecords = getDataRecords();
-      const components = dataRecords.filter(r => r.component_type !== '_aircraft_marker');
-      
-      let alertCount = 0;
-      components.forEach(comp => {
-        const status = getComponentStatus(comp);
-        if (status.status === 'attention' || status.status === 'critical') {
-          alertCount++;
-        }
-      });
-      
-      document.getElementById('stat-aircraft').textContent = aircraftList.length;
-      document.getElementById('stat-components').textContent = components.length;
-      document.getElementById('stat-alerts').textContent = alertCount;
-    }
-
-    // ========== RENDER FUNCTIONS ==========
-    function renderAircraftCards() {
-      const ec175List = document.getElementById('ec175-list');
-      const aw139List = document.getElementById('aw139-list');
-      
-      ec175List.innerHTML = '';
-      aw139List.innerHTML = '';
-      
-      const aircraftList = getAircraftList();
-      
-      aircraftList.forEach(aircraft => {
-        const components = getComponentsForAircraft(aircraft.prefix, aircraft.model);
-        
-        const card = document.createElement('div');
-        card.className = 'aircraft-card rounded-lg p-4 cursor-pointer';
-        card.innerHTML = `
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-white font-bold text-lg">${aircraft.prefix}</h4>
-              <p class="text-slate-400 text-sm">${components.length} componente(s)</p>
-            </div>
-            <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-            </svg>
-          </div>
-        `;
-        
-        card.addEventListener('click', () => showAircraftDetails(aircraft));
-        
-        if (aircraft.model === 'EC175') {
-          ec175List.appendChild(card);
-        } else {
-          aw139List.appendChild(card);
-        }
-      });
-    }
-
-    function renderUsersList() {
-      const usersList = document.getElementById('users-list');
-      const users = getUserRecords();
-      
-      usersList.innerHTML = '';
-      
-      if (users.length === 0) {
-        usersList.innerHTML = `
-          <div class="col-span-full text-center py-12">
-            <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-slate-700/50 flex items-center justify-center">
-              <svg class="w-10 h-10 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
-              </svg>
-            </div>
-            <p class="text-slate-400 text-lg">Nenhum usuário cadastrado</p>
-          </div>
-        `;
-        return;
-      }
-      
-      users.forEach(user => {
-        const card = document.createElement('div');
-        card.className = 'glass-card rounded-xl p-6';
-        card.innerHTML = `
-          <div class="flex items-start justify-between mb-4">
-            <div class="flex items-center gap-3">
-              <div class="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
-                <span class="text-white font-bold text-lg">${user.username.charAt(0).toUpperCase()}</span>
-              </div>
-              <div>
-                <h3 class="text-white font-bold text-lg">${user.username}</h3>
-                <p class="text-slate-400 text-sm">Usuário padrão</p>
-              </div>
-            </div>
-            <button class="delete-user-btn text-red-400 hover:text-red-300 transition-colors" data-user-id="${user.__backendId}">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-              </svg>
-            </button>
-          </div>
-          
-          <div class="space-y-2">
-            <div class="flex items-center justify-between text-sm">
-              <span class="text-slate-400">Status:</span>
-              <span class="px-2 py-1 rounded ${user.needs_password_change ? 'bg-amber-500/20 text-amber-300' : 'bg-green-500/20 text-green-300'}">
-                ${user.needs_password_change ? '⚠️ Trocar senha' : '✓ Ativo'}
-              </span>
-            </div>
-            <div class="flex items-center justify-between text-sm">
-              <span class="text-slate-400">Criado em:</span>
-              <span class="text-white">${new Date(user.created_at).toLocaleDateString('pt-BR')}</span>
-            </div>
-          </div>
-        `;
-        
-        const deleteBtn = card.querySelector('.delete-user-btn');
-        deleteBtn.addEventListener('click', () => deleteUser(user));
-        
-        usersList.appendChild(card);
-      });
-    }
-
-    async function deleteUser(user) {
-      const confirmDiv = document.createElement('div');
-      confirmDiv.className = 'fixed inset-0 z-50 flex items-center justify-center p-4';
-      confirmDiv.innerHTML = `
-        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-        <div class="relative glass-card rounded-2xl p-6 max-w-md w-full animate-slide-in">
-          <h3 class="text-xl font-bold text-white mb-3">Confirmar Exclusão</h3>
-          <p class="text-slate-300 mb-6">Tem certeza que deseja excluir o usuário <strong>${user.username}</strong>?</p>
-          <div class="flex items-center gap-3">
-            <button id="cancel-delete" class="flex-1 px-4 py-2.5 bg-slate-700/50 hover:bg-slate-600/50 rounded-lg font-medium transition-colors">
-              Cancelar
-            </button>
-            <button id="confirm-delete" class="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 rounded-lg font-semibold transition-colors text-white">
-              Excluir
-            </button>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(confirmDiv);
-      
-      confirmDiv.querySelector('#cancel-delete').addEventListener('click', () => confirmDiv.remove());
-      
-      confirmDiv.querySelector('#confirm-delete').addEventListener('click', async function() {
-        this.disabled = true;
-        this.textContent = 'Excluindo...';
-        
-        const result = await deleteRecord(user);
-        if (result.isOk) {
-          showToast('Usuário excluído com sucesso!', 'success');
-        } else {
-          showToast('Erro ao excluir usuário', 'error');
-        }
-        confirmDiv.remove();
-      });
-    }
-
-    function showAircraftDetails(aircraft) {
-      currentAircraft = aircraft;
-      
-      document.getElementById('aircraft-title').textContent = aircraft.prefix;
-      document.getElementById('aircraft-model-badge').textContent = aircraft.model;
-      
-      dashboardView.classList.add('hidden');
-      aircraftDetailsView.classList.remove('hidden');
-      
-      renderComponentOptions();
-    }
-
-    function renderComponentOptions() {
-      const buttonsContainer = document.getElementById('component-buttons');
-      const config = COMPONENT_CONFIG[currentAircraft.model];
-      
-      buttonsContainer.innerHTML = '';
-      
-      Object.keys(config).forEach(componentType => {
-        const components = getComponentsByType(currentAircraft.prefix, currentAircraft.model, componentType);
-        const count = components.length;
-        
-        const btn = document.createElement('button');
-        btn.className = 'component-btn rounded-xl p-6 text-left';
-        btn.innerHTML = `
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="text-xl font-bold text-white">${componentType}</h3>
-            <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-            </svg>
-          </div>
-          <p class="text-slate-400">${count} componente(s) cadastrado(s)</p>
-        `;
-        
-        btn.addEventListener('click', () => showComponentDetails(componentType));
-        buttonsContainer.appendChild(btn);
-      });
-    }
-
-    function showComponentDetails(componentType) {
-      currentComponentType = componentType;
-      
-      document.getElementById('component-type-title').textContent = componentType;
-      
-      componentOptions.classList.add('hidden');
-      colorSelectionView.classList.remove('hidden');
-      
-      renderColorCards(componentType);
-    }
-
-    function renderColorCards(componentType) {
-      const config = COMPONENT_CONFIG[currentAircraft.model][componentType];
-      const container = document.getElementById('components-list');
-      const emptyState = document.getElementById('components-empty');
-      const addBtn = document.getElementById('add-component-btn');
-      
-      container.innerHTML = '';
-      container.classList.remove('hidden');
-      emptyState.classList.add('hidden');
-      addBtn.classList.add('hidden');
-      
-      const availableColors = config.colors || ['Yellow', 'Green', 'Blue', 'Red'];
-      const existingComponents = getComponentsByType(currentAircraft.prefix, currentAircraft.model, componentType);
-      
-      availableColors.forEach(color => {
-        const existingComp = existingComponents.find(c => c.component_color === color);
-        const card = document.createElement('div');
-        card.className = 'glass-card rounded-xl p-6 cursor-pointer hover:border-blue-500/50 transition-all';
-        
-        if (existingComp) {
-          const status = getComponentStatus(existingComp);
-          const m1Percent = (existingComp.measure1_current / existingComp.measure1_max) * 100;
-          const m2Percent = (existingComp.measure2_current / existingComp.measure2_max) * 100;
-          
-          // Parse inspection history
-          let inspectionHistory = [];
-          if (existingComp.inspection_history) {
-            try {
-              inspectionHistory = JSON.parse(existingComp.inspection_history);
-            } catch (e) {
-              inspectionHistory = [];
-            }
-          }
-          
-          // Build history HTML
-          let historyHTML = '';
-          if (inspectionHistory.length > 0) {
-            historyHTML = '<div class="w-full mt-3 space-y-1.5">';
-            historyHTML += '<p class="text-slate-400 text-xs font-semibold mb-2">📋 Histórico:</p>';
-            inspectionHistory.slice(0, 3).forEach((hist, idx) => {
-              const date = new Date(hist.date);
-              const dateStr = date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-              // Get proper labels based on component type and model
-              let label1 = 'M1', label2 = 'M2';
-              if (currentAircraft.model === 'EC175') {
-                if (currentComponentType === 'Main Rotor Link') {
-                  label1 = 'Upper';
-                  label2 = 'Lower';
-                } else if (currentComponentType === 'Tail Rotor Link') {
-                  label1 = 'Inboard';
-                  label2 = 'Outboard';
-                } else if (currentComponentType === 'Tail Rotor Damper') {
-                  label1 = 'RH';
-                  label2 = 'LH';
-                }
-              } else if (currentAircraft.model === 'AW139') {
-                if (currentComponentType === 'Main Rotor Link' || currentComponentType === 'Tail Rotor Link') {
-                  label1 = 'Upper';
-                  label2 = 'Lower';
-                }
-              }
-              
-              historyHTML += `
-                <div class="bg-slate-800/50 rounded p-2 ${idx === 0 ? 'border border-blue-500/30' : ''}">
-                  <div class="flex items-center justify-between mb-1">
-                    <span class="text-slate-400 text-xs">${dateStr}</span>
-                    ${idx === 0 ? '<span class="text-blue-400 text-xs font-semibold">Atual</span>' : ''}
-                  </div>
-                  <div class="text-xs space-y-0.5">
-                    <div class="text-center whitespace-nowrap">
-                      <span class="text-slate-400">${label1}:</span>
-                      <span class="text-white font-bold ml-1">${inchToMm(hist.measure1).toFixed(2)} mm</span>
-                    </div>
-                    <div class="text-center whitespace-nowrap">
-                      <span class="text-slate-400">${label2}:</span>
-                      <span class="text-white font-bold ml-1">${inchToMm(hist.measure2).toFixed(2)} mm</span>
-                    </div>
-                  </div>
-                </div>
-              `;
-            });
-            historyHTML += '</div>';
-          }
-          
-          // Check if this is Tail Rotor Link to show single P/N
-          const isTailRotorLink = currentComponentType === 'Tail Rotor Link';
-          const partNumberDisplay = isTailRotorLink ? `
-            <div class="w-full mb-3 text-center">
-              <p class="text-white text-xs font-bold leading-tight">${existingComp.measure1_part_number.split(' (P/N ')[0]}</p>
-              <p class="text-slate-300 text-xs leading-tight">(P/N ${existingComp.measure1_part_number.split(' (P/N ')[1].replace(')', '')})</p>
-            </div>
-          ` : '';
-          
-          card.innerHTML = `
-            <div class="flex flex-col items-center py-4 px-3">
-              <div class="color-badge mb-2" style="background: ${color}; width: 48px; height: 48px;"></div>
-              
-              ${partNumberDisplay}
-              
-              <div class="w-full space-y-2 mb-3">
-                <div class="measure-zoom-trigger bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-lg p-3 border border-blue-500/20 cursor-pointer hover:border-blue-500/50 transition-all" data-measure="1">
-                  <p class="text-slate-300 text-xs mb-1">${existingComp.measure1_name}</p>
-                  <p class="text-white text-2xl font-bold">${inchToMm(existingComp.measure1_current).toFixed(2)} mm</p>
-                  <div class="progress-bar mt-1">
-                    <div class="progress-fill ${m1Percent >= 100 ? 'bg-red-500' : m1Percent >= existingComp.measure1_alert ? 'bg-amber-500' : 'bg-green-500'}" 
-                         style="width: ${Math.min(m1Percent, 100)}%"></div>
-                  </div>
-                </div>
-                
-                <div class="measure-zoom-trigger bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-lg p-3 border border-blue-500/20 cursor-pointer hover:border-blue-500/50 transition-all" data-measure="2">
-                  <p class="text-slate-300 text-xs mb-1">${existingComp.measure2_name}</p>
-                  <p class="text-white text-2xl font-bold">${inchToMm(existingComp.measure2_current).toFixed(2)} mm</p>
-                  <div class="progress-bar mt-1">
-                    <div class="progress-fill ${m2Percent >= 100 ? 'bg-red-500' : m2Percent >= existingComp.measure2_alert ? 'bg-amber-500' : 'bg-green-500'}" 
-                         style="width: ${Math.min(m2Percent, 100)}%"></div>
-                  </div>
-                </div>
-              </div>
-              
-              ${historyHTML}
-              
-              <div class="flex items-center gap-2 mt-3 mb-2">
-                <button class="edit-component-btn text-blue-400 hover:text-blue-300 transition-colors p-1.5" data-component-id="${existingComp.__backendId}">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                  </svg>
-                </button>
-                <button class="delete-component-btn text-red-400 hover:text-red-300 transition-colors p-1.5" data-component-id="${existingComp.__backendId}">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                  </svg>
-                </button>
-              </div>
-              
-              <span class="px-2 py-1 rounded-full text-xs font-semibold status-${status.status}">
-                ${status.label}
-              </span>
-            </div>
-          `;
-          
-          const editBtn = card.querySelector('.edit-component-btn');
-          const deleteBtn = card.querySelector('.delete-component-btn');
-          const zoomTriggers = card.querySelectorAll('.measure-zoom-trigger');
-          
-          editBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            editComponent(existingComp);
-          });
-          deleteBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            deleteComponent(existingComp);
-          });
-          
-          zoomTriggers.forEach((trigger, idx) => {
-            trigger.addEventListener('click', (e) => {
-              e.stopPropagation();
-              showMeasureZoom(existingComp, idx + 1);
-            });
-          });
-          
-          card.addEventListener('click', () => editComponent(existingComp));
-        } else {
-          // Empty card - click to add
-          const colorName = color === 'Yellow' ? 'Amarelo' : 
-                           color === 'Red' ? 'Vermelho' : 
-                           color === 'Black' ? 'Preto' : 
-                           color === 'White' ? 'Branco' : 
-                           color === 'Blue' ? 'Azul' : 'Verde';
-          
-          card.innerHTML = `
-            <div class="flex flex-col items-center justify-center py-6 px-3">
-              <div class="color-badge mb-3" style="background: ${color}; width: 48px; height: 48px;"></div>
-              <h3 class="text-white font-bold text-base mb-2">${getColorBadge(color)}</h3>
-              
-              <div class="w-full space-y-2 mb-3">
-                <div class="bg-slate-700/30 rounded p-2">
-                  <p class="text-slate-400 text-xs mb-1">${config.measures[0]}</p>
-                  <p class="text-slate-300 text-xs">${config.partNumbers ? config.partNumbers[config.measures[0]] : 'A definir'}</p>
-                </div>
-                <div class="bg-slate-700/30 rounded p-2">
-                  <p class="text-slate-400 text-xs mb-1">${config.measures[1]}</p>
-                  <p class="text-slate-300 text-xs">${config.partNumbers ? config.partNumbers[config.measures[1]] : 'A definir'}</p>
-                </div>
-              </div>
-              
-              <div class="flex items-center gap-1 text-blue-400 text-xs">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                </svg>
-                <span class="font-medium">Clique para adicionar</span>
-              </div>
-            </div>
-          `;
-          
-          card.addEventListener('click', () => {
-            openComponentForm(color);
-          });
-        }
-        
-        container.appendChild(card);
-      });
-    }
-
-    function renderComponentsForType(componentType) {
-      renderColorCards(componentType);
-    }
-
-    function openComponentForm(color = '') {
-      const config = COMPONENT_CONFIG[currentAircraft.model][currentComponentType];
-      
-      document.getElementById('modal-component-type').textContent = currentComponentType;
-      document.getElementById('measure1-title').textContent = config.measures[0];
-      document.getElementById('measure2-title').textContent = config.measures[1];
-      
-      document.getElementById('measure1-pn').placeholder = `P/N ${config.measures[0]}`;
-      document.getElementById('measure2-pn').placeholder = `P/N ${config.measures[1]}`;
-      
-      // Pre-fill part numbers
-      if (config.partNumbers) {
-        document.getElementById('measure1-pn').value = config.partNumbers[config.measures[0]] || '';
-        document.getElementById('measure2-pn').value = config.partNumbers[config.measures[1]] || '';
-        
-        // For AW139, disable the P/N fields since they're pre-defined
-        if (currentAircraft.model === 'AW139') {
-          document.getElementById('measure1-pn').readOnly = true;
-          document.getElementById('measure2-pn').readOnly = true;
-          document.getElementById('measure1-pn').style.opacity = '0.6';
-          document.getElementById('measure2-pn').style.opacity = '0.6';
-          document.getElementById('measure1-pn').style.cursor = 'not-allowed';
-          document.getElementById('measure2-pn').style.cursor = 'not-allowed';
-        } else {
-          document.getElementById('measure1-pn').readOnly = false;
-          document.getElementById('measure2-pn').readOnly = false;
-          document.getElementById('measure1-pn').style.opacity = '1';
-          document.getElementById('measure2-pn').style.opacity = '1';
-          document.getElementById('measure1-pn').style.cursor = 'text';
-          document.getElementById('measure2-pn').style.cursor = 'text';
-        }
-      }
-      
-      // Reset unit selection to inches
-      document.querySelector('input[name="unit"][value="inch"]').checked = true;
-      updateUnitSelection();
-      updateLimitDisplay();
-      
-      const existingComp = color ? getComponentsByType(currentAircraft.prefix, currentAircraft.model, currentComponentType)
-          .find(c => c.component_color === color) : null;
-      
-      // Set the color (fixed, not editable)
-      const selectedColor = existingComp ? existingComp.component_color : color;
-      document.getElementById('component-color').value = selectedColor;
-      
-      // Update color display
-      const colorNames = {
-        'Yellow': '🟡 Amarelo',
-        'Green': '🟢 Verde',
-        'Blue': '🔵 Azul',
-        'Red': '🔴 Vermelho',
-        'Black': '⚫ Preto',
-        'White': '⚪ Branco'
-      };
-      document.getElementById('modal-color-name').textContent = colorNames[selectedColor] || selectedColor;
-      document.getElementById('modal-color-badge').style.background = selectedColor;
-      
-      // Check if has inspection history (already has measurements)
-      const hasHistory = existingComp && existingComp.inspection_history && existingComp.inspection_history !== '[]';
-      
-      // Handle single serial and part number for Tail Rotor Link
-      if (config.singleSerial) {
-        document.getElementById('link-serial-container').classList.remove('hidden');
-        document.getElementById('measure1-serial').parentElement.classList.add('hidden');
-        document.getElementById('measure2-serial').parentElement.classList.add('hidden');
-        
-        // Show single P/N field, hide individual P/N fields
-        document.getElementById('single-pn-container').classList.remove('hidden');
-        document.getElementById('measure1-pn-container').classList.add('hidden');
-        document.getElementById('measure2-pn-container').classList.add('hidden');
-      } else {
-        document.getElementById('link-serial-container').classList.add('hidden');
-        document.getElementById('measure1-serial').parentElement.classList.remove('hidden');
-        document.getElementById('measure2-serial').parentElement.classList.remove('hidden');
-        
-        // Show individual P/N fields, hide single P/N field
-        document.getElementById('single-pn-container').classList.add('hidden');
-        document.getElementById('measure1-pn-container').classList.remove('hidden');
-        document.getElementById('measure2-pn-container').classList.remove('hidden');
-      }
-      
-      // Show/hide fields based on whether component has history
-      const fullFormFields = document.getElementById('full-form-fields');
-      const quickUpdateFields = document.getElementById('quick-update-fields');
-      const snQuestionContainer = document.getElementById('sn-question-container');
-      
-      if (hasHistory) {
-        // Quick update mode - only measurements and date
-        fullFormFields.classList.add('hidden');
-        quickUpdateFields.classList.remove('hidden');
-        snQuestionContainer.classList.remove('hidden');
-        
-        document.getElementById('component-modal-title').textContent = 'Nova Medição';
-        document.getElementById('component-submit-btn').textContent = 'Registrar Medição';
-        
-        // Show current S/N info
-        const currentSNInfo = document.getElementById('current-sn-info');
-        if (config.singleSerial) {
-          currentSNInfo.innerHTML = `
-            <p class="text-slate-300 text-sm mb-2"><strong>P/N Atual:</strong> ${existingComp.measure1_part_number}</p>
-            ${existingComp.link_serial_number ? `<p class="text-slate-300 text-sm"><strong>Link S/N Atual:</strong> ${existingComp.link_serial_number}</p>` : ''}
-          `;
-        } else {
-          currentSNInfo.innerHTML = `
-            <p class="text-slate-300 text-sm mb-1"><strong>${config.measures[0]}:</strong></p>
-            <p class="text-slate-400 text-xs mb-2">P/N: ${existingComp.measure1_part_number}${existingComp.measure1_serial_number ? ' | S/N: ' + existingComp.measure1_serial_number : ''}</p>
-            <p class="text-slate-300 text-sm mb-1"><strong>${config.measures[1]}:</strong></p>
-            <p class="text-slate-400 text-xs">P/N: ${existingComp.measure2_part_number}${existingComp.measure2_serial_number ? ' | S/N: ' + existingComp.measure2_serial_number : ''}</p>
-          `;
-        }
-        
-        // Reset S/N change option
-        document.querySelector('input[name="sn-change"][value="no"]').checked = true;
-        handleSNChange();
-        
-      } else {
-        // Full form mode - new component or first measurement
-        fullFormFields.classList.remove('hidden');
-        quickUpdateFields.classList.add('hidden');
-        snQuestionContainer.classList.add('hidden');
-        
-        if (existingComp) {
-          document.getElementById('component-modal-title').textContent = 'Editar Componente';
-          document.getElementById('component-submit-btn').textContent = 'Salvar Alterações';
-        } else {
-          document.getElementById('component-modal-title').textContent = 'Novo Componente';
-          document.getElementById('component-submit-btn').textContent = 'Cadastrar';
-        }
-      }
-      
-      if (existingComp) {
-        document.getElementById('edit-component-id').value = existingComp.__backendId;
-        
-        if (config.singleSerial) {
-          document.getElementById('single-pn').value = existingComp.measure1_part_number;
-        } else {
-          document.getElementById('measure1-pn').value = existingComp.measure1_part_number;
-          document.getElementById('measure1-serial').value = existingComp.measure1_serial_number || '';
-          document.getElementById('measure2-pn').value = existingComp.measure2_part_number;
-          document.getElementById('measure2-serial').value = existingComp.measure2_serial_number || '';
-        }
-        
-        document.getElementById('measure1-current').value = '';
-        document.getElementById('measure1-alert').value = existingComp.measure1_alert;
-        document.getElementById('measure2-current').value = '';
-        document.getElementById('measure2-alert').value = existingComp.measure2_alert;
-        document.getElementById('inspection-date').value = new Date().toISOString().split('T')[0];
-        if (config.singleSerial) {
-          document.getElementById('link-serial').value = existingComp.link_serial_number || '';
-        }
-        document.getElementById('notes').value = existingComp.notes || '';
-        
-        // Quick update fields
-        document.getElementById('quick-measure1').value = '';
-        document.getElementById('quick-measure2').value = '';
-        document.getElementById('quick-inspection-date').value = new Date().toISOString().split('T')[0];
-        document.getElementById('quick-measure1-title').textContent = config.measures[0];
-        document.getElementById('quick-measure2-title').textContent = config.measures[1];
-        
-      } else {
-        document.getElementById('edit-component-id').value = '';
-        
-        if (config.singleSerial) {
-          document.getElementById('single-pn').value = config.partNumbers ? (config.partNumbers[config.measures[0]] || '') : '';
-        } else {
-          document.getElementById('measure1-serial').value = '';
-          document.getElementById('measure2-serial').value = '';
-        }
-        
-        document.getElementById('measure1-current').value = '';
-        document.getElementById('measure1-alert').value = 80;
-        document.getElementById('measure2-current').value = '';
-        document.getElementById('measure2-alert').value = 80;
-        document.getElementById('inspection-date').value = new Date().toISOString().split('T')[0];
-        if (config.singleSerial) {
-          document.getElementById('link-serial').value = '';
-        }
-        document.getElementById('notes').value = '';
-      }
-      
-      document.getElementById('component-modal').classList.remove('hidden');
-    }
-
-    function editComponent(comp) {
-      currentComponentType = comp.component_type;
-      openComponentForm(comp.component_color);
-    }
-    
-    function showMeasureZoom(comp, measureNum) {
-      const measureName = measureNum === 1 ? comp.measure1_name : comp.measure2_name;
-      const measureValue = measureNum === 1 ? comp.measure1_current : comp.measure2_current;
-      const measureMax = measureNum === 1 ? comp.measure1_max : comp.measure2_max;
-      const measurePN = measureNum === 1 ? comp.measure1_part_number : comp.measure2_part_number;
-      const measureSN = measureNum === 1 ? comp.measure1_serial_number : comp.measure2_serial_number;
-      const measureAlert = measureNum === 1 ? comp.measure1_alert : comp.measure2_alert;
-      
-      const percent = (measureValue / measureMax) * 100;
-      const statusClass = percent >= 100 ? 'status-critical' : percent >= measureAlert ? 'status-attention' : 'status-normal';
-      const statusLabel = percent >= 100 ? 'Crítico' : percent >= measureAlert ? 'Atenção' : 'Normal';
-      
-      const inspectionDate = new Date(comp.last_inspection_date).toLocaleDateString('pt-BR');
-      
-      // Check if this is a Tail Rotor Link component
-      const isTailRotorLink = comp.component_type === 'Tail Rotor Link';
-      const linkSN = comp.link_serial_number || '';
-      
-      const zoomDiv = document.createElement('div');
-      zoomDiv.className = 'batman-zoom';
-      zoomDiv.innerHTML = `
-        <div class="batman-backdrop"></div>
-        <div class="batman-content">
-          <div class="text-center mb-6">
-            <div class="inline-flex items-center justify-center w-20 h-20 rounded-full ${statusClass} mb-4">
-              <span class="text-4xl">${getColorBadge(comp.component_color)}</span>
-            </div>
-            <h2 class="text-2xl font-bold text-white mb-2">${measureName}</h2>
-            <p class="text-slate-300 text-sm">${comp.component_type}</p>
-          </div>
-          
-          <div class="space-y-4 mb-6">
-            <div class="bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-lg p-4 border border-blue-500/20 text-center">
-              <p class="text-slate-400 text-sm mb-2">Medição Atual</p>
-              <p class="text-white text-5xl font-bold mb-2">${inchToMm(measureValue).toFixed(2)} mm</p>
-              <div class="progress-bar h-3">
-                <div class="progress-fill ${percent >= 100 ? 'bg-red-500' : percent >= measureAlert ? 'bg-amber-500' : 'bg-green-500'}" 
-                     style="width: ${Math.min(percent, 100)}%"></div>
-              </div>
-              <p class="text-slate-300 text-xs mt-2">${percent.toFixed(1)}% do limite (${inchToMm(measureMax).toFixed(2)} mm)</p>
-            </div>
-            
-            <div class="bg-slate-700/30 rounded-lg p-4 space-y-3">
-              <div class="flex items-center justify-between">
-                <span class="text-slate-400 text-sm">Part Number:</span>
-                <span class="text-white font-bold text-sm">${measurePN}</span>
-              </div>
-              ${measureSN ? `
-                <div class="flex items-center justify-between">
-                  <span class="text-slate-400 text-sm">Serial Number:</span>
-                  <span class="text-white font-bold text-sm">${measureSN}</span>
-                </div>
-              ` : ''}
-              ${isTailRotorLink && linkSN ? `
-                <div class="flex items-center justify-between">
-                  <span class="text-slate-400 text-sm">Link Serial Number:</span>
-                  <span class="text-white font-bold text-sm">${linkSN}</span>
-                </div>
-              ` : ''}
-              <div class="flex items-center justify-between">
-                <span class="text-slate-400 text-sm">Data da Inspeção:</span>
-                <span class="text-white font-bold text-sm">${inspectionDate}</span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-slate-400 text-sm">Status:</span>
-                <span class="px-3 py-1 rounded-full text-xs font-semibold ${statusClass}">${statusLabel}</span>
-              </div>
-            </div>
-          </div>
-          
-          <button class="close-batman-zoom w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-semibold text-white transition-colors">
-            Fechar
-          </button>
-        </div>
-      `;
-      
-      document.body.appendChild(zoomDiv);
-      
-      const closeBtn = zoomDiv.querySelector('.close-batman-zoom');
-      const backdrop = zoomDiv.querySelector('.batman-backdrop');
-      
-      const closeZoom = () => {
-        zoomDiv.style.opacity = '0';
-        setTimeout(() => zoomDiv.remove(), 300);
-      };
-      
-      closeBtn.addEventListener('click', closeZoom);
-      backdrop.addEventListener('click', closeZoom);
-    }
-
-    async function deleteComponent(comp) {
-      const confirmDiv = document.createElement('div');
-      confirmDiv.className = 'fixed inset-0 z-50 flex items-center justify-center p-4';
-      confirmDiv.innerHTML = `
-        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-        <div class="relative glass-card rounded-2xl p-6 max-w-md w-full animate-slide-in">
-          <h3 class="text-xl font-bold text-white mb-3">Confirmar Exclusão</h3>
-          <p class="text-slate-300 mb-6">Tem certeza que deseja excluir <strong>${comp.component_type} ${comp.component_color}</strong>?</p>
-          <div class="flex items-center gap-3">
-            <button id="cancel-delete" class="flex-1 px-4 py-2.5 bg-slate-700/50 hover:bg-slate-600/50 rounded-lg font-medium transition-colors">
-              Cancelar
-            </button>
-            <button id="confirm-delete" class="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 rounded-lg font-semibold transition-colors text-white">
-              Excluir
-            </button>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(confirmDiv);
-      
-      confirmDiv.querySelector('#cancel-delete').addEventListener('click', () => confirmDiv.remove());
-      
-      confirmDiv.querySelector('#confirm-delete').addEventListener('click', async function() {
-        this.disabled = true;
-        this.textContent = 'Excluindo...';
-        
-        const result = await deleteRecord(comp);
-        if (result.isOk) {
-          showToast('Componente excluído com sucesso!', 'success');
-        } else {
-          showToast('Erro ao excluir componente', 'error');
-        }
-        confirmDiv.remove();
-      });
-    }
-
-    // ========== PRINT REPORT ==========
-    function generateReport() {
-      const dataRecords = getDataRecords();
-      const components = dataRecords.filter(r => r.component_type !== '_aircraft_marker');
-      
-      // Filter components near limit (>= alert threshold)
-      const alertComponents = components.filter(comp => {
-        const m1Percent = (comp.measure1_current / comp.measure1_max) * 100;
-        const m2Percent = (comp.measure2_current / comp.measure2_max) * 100;
-        const maxPercent = Math.max(m1Percent, m2Percent);
-        return maxPercent >= comp.measure1_alert;
-      });
-      
-      if (alertComponents.length === 0) {
-        showToast('Nenhum componente perto do limite!', 'error');
-        return;
-      }
-      
-      // Group by aircraft (prefix + model)
-      const groupedByAircraft = {};
-      alertComponents.forEach(comp => {
-        const key = `${comp.aircraft_prefix}_${comp.aircraft_model}`;
-        if (!groupedByAircraft[key]) {
-          groupedByAircraft[key] = {
-            prefix: comp.aircraft_prefix,
-            model: comp.aircraft_model,
-            components: []
-          };
-        }
-        groupedByAircraft[key].components.push(comp);
-      });
-      
-      // Generate HTML report
-      const now = new Date();
-      const dateStr = now.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-      const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-      
-      let html = `
-        <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 1200px; margin: 0 auto; background: white !important; color: black !important;">
-          <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #333; padding-bottom: 20px;">
-            <h1 style="margin: 0; font-size: 24px; color: #000;">RELATÓRIO DE FOLGAS PRÓXIMAS AO LIMITE</h1>
-            <p style="margin: 10px 0 0 0; font-size: 14px; color: #666;">Sistema de Monitoramento de Helicópteros</p>
-            <p style="margin: 5px 0 0 0; font-size: 12px; color: #666;">Gerado em: ${dateStr} às ${timeStr}</p>
-          </div>
-      `;
-      
-      // Iterate through each aircraft
-      Object.values(groupedByAircraft).forEach((aircraft, aircraftIdx) => {
-        html += `
-          <div style="margin-bottom: 40px; ${aircraftIdx > 0 ? 'page-break-before: always;' : ''}">
-            <div style="background: #f0f0f0; padding: 15px; margin-bottom: 20px; border-left: 5px solid #333;">
-              <h2 style="margin: 0; font-size: 20px; color: #000;">${aircraft.prefix} - ${aircraft.model}</h2>
-              <p style="margin: 5px 0 0 0; font-size: 14px; color: #666;">Total de componentes em alerta: ${aircraft.components.length}</p>
-            </div>
-        `;
-        
-        // Summary table for this aircraft
-        const summary = {};
-        aircraft.components.forEach(comp => {
-          const m1Percent = (comp.measure1_current / comp.measure1_max) * 100;
-          const m2Percent = (comp.measure2_current / comp.measure2_max) * 100;
-          
-          // Measure 1
-          if (m1Percent >= comp.measure1_alert) {
-            const m1Key = `${comp.measure1_name}|${comp.measure1_part_number}`;
-            if (!summary[m1Key]) {
-              summary[m1Key] = {
-                description: comp.measure1_name,
-                partNumber: comp.measure1_part_number,
-                count: 0
-              };
-            }
-            summary[m1Key].count++;
-          }
-          
-          // Measure 2
-          if (m2Percent >= comp.measure2_alert) {
-            const m2Key = `${comp.measure2_name}|${comp.measure2_part_number}`;
-            if (!summary[m2Key]) {
-              summary[m2Key] = {
-                description: comp.measure2_name,
-                partNumber: comp.measure2_part_number,
-                count: 0
-              };
-            }
-            summary[m2Key].count++;
-          }
-        });
-        
-        html += `
-          <div style="margin-bottom: 25px;">
-            <h3 style="font-size: 16px; color: #000; margin-bottom: 10px; border-bottom: 2px solid #ccc; padding-bottom: 5px;">Resumo Quantitativo</h3>
-            <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px;">
-              <thead>
-                <tr style="background: #333; color: white;">
-                  <th style="padding: 10px; text-align: left; border: 1px solid #ccc;">Descrição</th>
-                  <th style="padding: 10px; text-align: left; border: 1px solid #ccc;">Part Number</th>
-                  <th style="padding: 10px; text-align: center; border: 1px solid #ccc;">Quantidade</th>
-                </tr>
-              </thead>
-              <tbody>
-        `;
-        
-        Object.values(summary).forEach((item, idx) => {
-          html += `
-            <tr style="background: ${idx % 2 === 0 ? '#f9f9f9' : 'white'};">
-              <td style="padding: 8px; border: 1px solid #ccc;">${item.description}</td>
-              <td style="padding: 8px; border: 1px solid #ccc; font-family: monospace;">${item.partNumber}</td>
-              <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold;">${item.count}</td>
-            </tr>
-          `;
-        });
-        
-        html += `
-              </tbody>
-            </table>
-          </div>
-        `;
-        
-        // Detailed table for this aircraft
-        html += `
-          <div style="margin-bottom: 20px;">
-            <h3 style="font-size: 16px; color: #000; margin-bottom: 10px; border-bottom: 2px solid #ccc; padding-bottom: 5px;">Detalhamento dos Componentes</h3>
-            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-              <thead>
-                <tr style="background: #333; color: white;">
-                  <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">Componente</th>
-                  <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">Cor</th>
-                  <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">Descrição</th>
-                  <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">P/N</th>
-                  <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">S/N</th>
-                  <th style="padding: 8px; text-align: center; border: 1px solid #ccc;">Mediç  o</th>
-                  <th style="padding: 8px; text-align: center; border: 1px solid #ccc;">%</th>
-                  <th style="padding: 8px; text-align: center; border: 1px solid #ccc;">Data</th>
-                  <th style="padding: 8px; text-align: center; border: 1px solid #ccc;">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-        `;
-        
-        aircraft.components.forEach((comp, idx) => {
-          const m1Percent = (comp.measure1_current / comp.measure1_max) * 100;
-          const m2Percent = (comp.measure2_current / comp.measure2_max) * 100;
-          const inspectionDate = new Date(comp.last_inspection_date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-          
-          const colorMap = {
-            'Yellow': '🟡 Amarelo',
-            'Green': '🟢 Verde',
-            'Blue': '🔵 Azul',
-            'Red': '🔴 Vermelho',
-            'Black': '⚫ Preto',
-            'White': '⚪ Branco'
-          };
-          
-          // Row for measure 1
-          if (m1Percent >= comp.measure1_alert) {
-            const m1Status = m1Percent >= 100 ? 'CRÍTICO' : 'ATENÇÃO';
-            const m1Color = m1Percent >= 100 ? '#ef4444' : '#f59e0b';
-            
-            html += `
-              <tr style="background: ${idx % 2 === 0 ? '#f9f9f9' : 'white'};">
-                <td style="padding: 8px; border: 1px solid #ccc;">${comp.component_type}</td>
-                <td style="padding: 8px; border: 1px solid #ccc;">${colorMap[comp.component_color] || comp.component_color}</td>
-                <td style="padding: 8px; border: 1px solid #ccc;">${comp.measure1_name}</td>
-                <td style="padding: 8px; border: 1px solid #ccc; font-family: monospace; font-size: 10px;">${comp.measure1_part_number}</td>
-                <td style="padding: 8px; border: 1px solid #ccc; font-family: monospace; font-size: 10px;">${comp.measure1_serial_number || '-'}</td>
-                <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold;">${comp.measure1_current.toFixed(3)}"</td>
-                <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold; color: ${m1Color};">${m1Percent.toFixed(1)}%</td>
-                <td style="padding: 8px; border: 1px solid #ccc; text-align: center;">${inspectionDate}</td>
-                <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold; color: ${m1Color};">${m1Status}</td>
-              </tr>
-            `;
-          }
-          
-          // Row for measure 2
-          if (m2Percent >= comp.measure2_alert) {
-            const m2Status = m2Percent >= 100 ? 'CRÍTICO' : 'ATENÇÃO';
-            const m2Color = m2Percent >= 100 ? '#ef4444' : '#f59e0b';
-            
-            html += `
-              <tr style="background: ${idx % 2 === 0 ? '#f9f9f9' : 'white'};">
-                <td style="padding: 8px; border: 1px solid #ccc;">${comp.component_type}</td>
-                <td style="padding: 8px; border: 1px solid #ccc;">${colorMap[comp.component_color] || comp.component_color}</td>
-                <td style="padding: 8px; border: 1px solid #ccc;">${comp.measure2_name}</td>
-                <td style="padding: 8px; border: 1px solid #ccc; font-family: monospace; font-size: 10px;">${comp.measure2_part_number}</td>
-                <td style="padding: 8px; border: 1px solid #ccc; font-family: monospace; font-size: 10px;">${comp.measure2_serial_number || '-'}</td>
-                <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold;">${comp.measure2_current.toFixed(3)}"</td>
-                <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold; color: ${m2Color};">${m2Percent.toFixed(1)}%</td>
-                <td style="padding: 8px; border: 1px solid #ccc; text-align: center;">${inspectionDate}</td>
-                <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold; color: ${m2Color};">${m2Status}</td>
-              </tr>
-            `;
-          }
-        });
-        
-        html += `
-              </tbody>
-            </table>
-          </div>
-        </div>
-        `;
-      });
-      
-      html += `
-          <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #ccc; text-align: center; font-size: 11px; color: #666;">
-            <p>Relatório gerado automaticamente pelo Sistema de Controle de Folga ROD END</p>
-            <p>Usuário: ${currentUser.username} | Data/Hora: ${dateStr} ${timeStr}</p>
-          </div>
-        </div>
-      `;
-      
-      // Insert into print container and trigger print
-      const printContainer = document.getElementById('print-container');
-      printContainer.innerHTML = html;
-      printContainer.classList.remove('hidden');
-      
-      setTimeout(() => {
-        window.print();
-        printContainer.classList.add('hidden');
-      }, 250);
-    }
-
-    // ========== EVENT LISTENERS ==========
-
-    // Login
-    document.getElementById('login-form').addEventListener('submit', async function(e) {
-      e.preventDefault();
-      const user = document.getElementById('username').value.trim();
-      const pass = document.getElementById('password').value;
-      
-      const auth = await authenticateUser(user, pass);
-      
-      if (auth.success) {
-        document.getElementById('error-message').classList.add('hidden');
-        currentUser = { username: user, isAdmin: auth.isAdmin, id: auth.user?.id || '' };
-        await loadRecords();
-        
-        if (auth.needsPasswordChange) {
-          loginScreen.classList.add('hidden');
-          changePasswordScreen.classList.remove('hidden');
-        } else {
-          document.getElementById('user-display').textContent = user;
-          if (auth.isAdmin) {
-            document.getElementById('manage-users-btn').classList.remove('hidden');
-          }
-          loginScreen.classList.add('hidden');
-          mainApp.classList.remove('hidden');
-        }
-        this.reset();
-      } else {
-        document.getElementById('error-message').classList.remove('hidden');
-        document.getElementById('password').value = '';
-      }
-    });
-
-    // Change Password
-    document.getElementById('change-password-form').addEventListener('submit', async function(e) {
-      e.preventDefault();
-      
-      const newPass = document.getElementById('new-password').value;
-      const confirmPass = document.getElementById('confirm-password').value;
-      const errorDiv = document.getElementById('password-error');
-      
-      if (newPass.length < 6) {
-        errorDiv.querySelector('p').textContent = 'A senha deve ter no mínimo 6 caracteres';
-        errorDiv.classList.remove('hidden');
-        return;
-      }
-      
-      if (newPass !== confirmPass) {
-        errorDiv.querySelector('p').textContent = 'As senhas não coincidem';
-        errorDiv.classList.remove('hidden');
-        return;
-      }
-      
-      errorDiv.classList.add('hidden');
-      
-      // Find user record and update password
-      const userRecord = getUserRecords().find(u => u.username === currentUser.username);
-      if (userRecord) {
-        const result = await updateRecord({
-          ...userRecord,
-          password: newPass,
-          needs_password_change: false,
-          modified_at: new Date().toISOString(),
-          modified_by: currentUser.username
-        });
-        
-        if (result.isOk) {
-          showToast('Senha alterada com sucesso!', 'success');
-          document.getElementById('user-display').textContent = currentUser.username;
-          changePasswordScreen.classList.add('hidden');
-          mainApp.classList.remove('hidden');
-          this.reset();
-        } else {
-          errorDiv.querySelector('p').textContent = 'Erro ao alterar senha';
-          errorDiv.classList.remove('hidden');
-        }
-      }
-    });
-
-    // Back to Monitoring
-    document.getElementById('back-to-monitoring-btn').addEventListener('click', function() {
-      window.location.href = '/';
-    });
-
-    // Print Report
-    document.getElementById('print-report-btn').addEventListener('click', generateReport);
-
-    // Logout
-    document.getElementById('logout-btn').addEventListener('click', function() {
-      currentUser = { username: '', isAdmin: false };
-      mainApp.classList.add('hidden');
-      loginScreen.classList.remove('hidden');
-      dashboardView.classList.remove('hidden');
-      userManagementView.classList.add('hidden');
-      aircraftDetailsView.classList.add('hidden');
-      document.getElementById('manage-users-btn').classList.add('hidden');
-    });
-
-    // User Management
-    document.getElementById('manage-users-btn').addEventListener('click', function() {
-      dashboardView.classList.add('hidden');
-      userManagementView.classList.remove('hidden');
-      renderUsersList();
-    });
-
-    document.getElementById('back-to-dashboard-users').addEventListener('click', function() {
-      userManagementView.classList.add('hidden');
-      dashboardView.classList.remove('hidden');
-    });
-
-    // Add User Modal
-    const addUserModal = document.getElementById('add-user-modal');
-    const userForm = document.getElementById('user-form');
-
-    document.getElementById('add-user-btn').addEventListener('click', () => {
-      document.getElementById('new-username').value = '';
-      addUserModal.classList.remove('hidden');
-    });
-
-    document.getElementById('user-modal-close').addEventListener('click', () => addUserModal.classList.add('hidden'));
-    document.getElementById('user-modal-backdrop').addEventListener('click', () => addUserModal.classList.add('hidden'));
-    document.getElementById('user-modal-cancel').addEventListener('click', () => addUserModal.classList.add('hidden'));
-
-    userForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (isSubmitting) return;
-      isSubmitting = true;
-      
-      const submitBtn = document.getElementById('user-submit-btn');
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Criando...';
-      
-      const username = document.getElementById('new-username').value.trim();
-      
-      // Check if user already exists
-      if (username === ADMIN_USER || getUserRecords().find(u => u.username === username)) {
-        showToast('Usuário já existe!', 'error');
+        showToast(error.message || 'Erro ao criar usuário', 'error');
+      } finally {
         isSubmitting = false;
         submitBtn.disabled = false;
         submitBtn.textContent = 'Criar Usuário';
-        return;
       }
-      
-      const result = await createRecord({
-        type: 'rodend_user',
-        username: username,
-        password: DEFAULT_PASSWORD,
-        needs_password_change: true,
-        aircraft_prefix: '',
-        aircraft_model: '',
-        component_type: '',
-        component_color: '',
-        measure1_name: '',
-        measure1_part_number: '',
-        measure1_serial_number: '',
-        measure1_current: 0,
-        measure1_max: 0,
-        measure1_alert: 0,
-        measure2_name: '',
-        measure2_part_number: '',
-        measure2_serial_number: '',
-        measure2_current: 0,
-        measure2_max: 0,
-        measure2_alert: 0,
-        link_serial_number: '',
-        last_inspection_date: '',
-        inspection_history: '',
-        notes: '',
-        created_by: currentUser.username,
-        modified_by: '',
-        created_at: new Date().toISOString(),
-        modified_at: ''
-      });
-      
-      if (result.isOk) {
-        showToast(`Usuário ${username} criado com sucesso!`, 'success');
-        addUserModal.classList.add('hidden');
-        userForm.reset();
-      } else {
-        showToast('Erro ao criar usuário', 'error');
-      }
-      
-      isSubmitting = false;
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Criar Usuário';
     });
 
     // Back to Dashboard
@@ -4809,60 +2427,67 @@
       submitBtn.disabled = true;
       submitBtn.textContent = 'Cadastrando...';
       
-      const prefix = document.getElementById('aircraft-prefix').value.toUpperCase().trim();
-      const model = document.getElementById('aircraft-model-input').value;
+      try {
+        const prefix = document.getElementById('aircraft-prefix').value.toUpperCase().trim();
+        const model = document.getElementById('aircraft-model-input').value;
+
+        if (!prefix || !model) {
+          showToast('Informe o modelo e o prefixo da aeronave.', 'error');
+          return;
+        }
       
-      const dataRecords = getDataRecords();
-      if (dataRecords.find(r => r.aircraft_prefix === prefix && r.aircraft_model === model)) {
-        showToast('Aeronave já cadastrada!', 'error');
+        const dataRecords = getDataRecords();
+        if (dataRecords.find(r => r.aircraft_prefix === prefix && r.aircraft_model === model)) {
+          showToast('Aeronave já cadastrada!', 'error');
+          return;
+        }
+      
+        const result = await createRecord({
+          type: 'rodend_aircraft',
+          username: '',
+          password: '',
+          needs_password_change: false,
+          aircraft_prefix: prefix,
+          aircraft_model: model,
+          component_type: '_aircraft_marker',
+          component_color: '',
+          measure1_name: '',
+          measure1_part_number: '',
+          measure1_serial_number: '',
+          measure1_current: 0,
+          measure1_max: 0,
+          measure1_alert: 80,
+          measure2_name: '',
+          measure2_part_number: '',
+          measure2_serial_number: '',
+          measure2_current: 0,
+          measure2_max: 0,
+          measure2_alert: 80,
+          link_serial_number: '',
+          last_inspection_date: new Date().toISOString(),
+          inspection_history: '',
+          notes: '',
+          created_by: currentUser.username,
+          modified_by: '',
+          created_at: new Date().toISOString(),
+          modified_at: ''
+        });
+      
+        if (result.isOk) {
+          showToast(`Aeronave ${prefix} cadastrada com sucesso!`, 'success');
+          addAircraftModal.classList.add('hidden');
+          aircraftForm.reset();
+        } else {
+          showToast(result.error || 'Erro ao cadastrar aeronave', 'error');
+        }
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || 'Erro ao cadastrar aeronave', 'error');
+      } finally {
         isSubmitting = false;
         submitBtn.disabled = false;
         submitBtn.textContent = 'Cadastrar';
-        return;
       }
-      
-      const result = await createRecord({
-        type: 'rodend_aircraft',
-        username: '',
-        password: '',
-        needs_password_change: false,
-        aircraft_prefix: prefix,
-        aircraft_model: model,
-        component_type: '_aircraft_marker',
-        component_color: '',
-        measure1_name: '',
-        measure1_part_number: '',
-        measure1_serial_number: '',
-        measure1_current: 0,
-        measure1_max: 0,
-        measure1_alert: 80,
-        measure2_name: '',
-        measure2_part_number: '',
-        measure2_serial_number: '',
-        measure2_current: 0,
-        measure2_max: 0,
-        measure2_alert: 80,
-        link_serial_number: '',
-        last_inspection_date: new Date().toISOString(),
-        inspection_history: '',
-        notes: '',
-        created_by: currentUser.username,
-        modified_by: '',
-        created_at: new Date().toISOString(),
-        modified_at: ''
-      });
-      
-      if (result.isOk) {
-        showToast(`Aeronave ${prefix} cadastrada com sucesso!`, 'success');
-        addAircraftModal.classList.add('hidden');
-        aircraftForm.reset();
-      } else {
-        showToast('Erro ao cadastrar aeronave', 'error');
-      }
-      
-      isSubmitting = false;
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Cadastrar';
     });
 
     // Component Modal
@@ -4885,170 +2510,200 @@
       const isEdit = !!editId;
       submitBtn.disabled = true;
       submitBtn.textContent = isEdit ? 'Salvando...' : 'Cadastrando...';
-      
-      const config = COMPONENT_CONFIG[currentAircraft.model];
-      const componentConfig = config[currentComponentType];
-      const measures = componentConfig.measures;
-      
-      const existingRecord = isEdit ? allRecords.find(r => r.__backendId === editId) : null;
-      const hasHistory = existingRecord && existingRecord.inspection_history && existingRecord.inspection_history !== '[]';
-      const isQuickUpdate = hasHistory && !document.getElementById('full-form-fields').classList.contains('hidden') === false;
-      
-      // Get measurement values
-      let measure1_current, measure2_current, inspection_date;
-      
-      if (isQuickUpdate && document.querySelector('input[name="sn-change"]:checked').value === 'no') {
-        // Quick update - only new measurements
-        const selectedUnit = document.querySelector('input[name="unit"]:checked').value;
-        measure1_current = parseFloat(document.getElementById('quick-measure1').value);
-        measure2_current = parseFloat(document.getElementById('quick-measure2').value);
-        
-        if (selectedUnit === 'mm') {
-          measure1_current = mmToInch(measure1_current);
-          measure2_current = mmToInch(measure2_current);
-        }
-        
-        inspection_date = document.getElementById('quick-inspection-date').value;
-      } else {
-        // Full form - all fields
-        const selectedUnit = document.querySelector('input[name="unit"]:checked').value;
-        measure1_current = parseFloat(document.getElementById('measure1-current').value);
-        measure2_current = parseFloat(document.getElementById('measure2-current').value);
-        
-        if (selectedUnit === 'mm') {
-          measure1_current = mmToInch(measure1_current);
-          measure2_current = mmToInch(measure2_current);
-        }
-        
-        inspection_date = document.getElementById('inspection-date').value;
-      }
-      
-      const inspection_date_iso = new Date(inspection_date + 'T00:00:00').toISOString();
-      const limits = MAX_CLEARANCE[currentAircraft.model][currentComponentType];
-      const measure1_max = limits.max_inch;
-      const measure2_max = limits.max_inch;
 
-      let inspectionHistory = [];
-      if (existingRecord && existingRecord.inspection_history) {
-        try {
-          inspectionHistory = JSON.parse(existingRecord.inspection_history);
-        } catch (e) {
-          inspectionHistory = [];
+      try {
+        if (!currentAircraft?.model || !currentComponentType) {
+          showToast('Selecione a aeronave e o componente antes de salvar.', 'error');
+          return;
         }
-      }
 
-      inspectionHistory.unshift({
-        date: inspection_date_iso,
-        measure1: measure1_current,
-        measure1_max: measure1_max,
-        measure2: measure2_current,
-        measure2_max: measure2_max
-      });
+        const config = COMPONENT_CONFIG[currentAircraft.model];
+        const componentConfig = config?.[currentComponentType];
+        if (!componentConfig) {
+          showToast('Configuração do componente não encontrada.', 'error');
+          return;
+        }
 
-      if (inspectionHistory.length > 3) {
-        inspectionHistory = inspectionHistory.slice(0, 3);
-      }
-      
-      // Prepare data object
-      let data;
-      
-      if (isQuickUpdate && document.querySelector('input[name="sn-change"]:checked').value === 'no') {
-        // Keep existing P/N and S/N, only update measurements
-        data = {
-          type: 'rodend_component',
-          username: '',
-          password: '',
-          needs_password_change: false,
-          aircraft_prefix: currentAircraft.prefix,
-          aircraft_model: currentAircraft.model,
-          component_type: currentComponentType,
-          component_color: document.getElementById('component-color').value,
-          measure1_name: measures[0],
-          measure1_part_number: existingRecord.measure1_part_number,
-          measure1_serial_number: existingRecord.measure1_serial_number,
-          measure1_current: measure1_current,
-          measure1_max: measure1_max,
-          measure1_alert: existingRecord.measure1_alert,
-          measure2_name: measures[1],
-          measure2_part_number: existingRecord.measure2_part_number,
-          measure2_serial_number: existingRecord.measure2_serial_number,
-          measure2_current: measure2_current,
-          measure2_max: measure2_max,
-          measure2_alert: existingRecord.measure2_alert,
-          link_serial_number: existingRecord.link_serial_number,
-          last_inspection_date: inspection_date_iso,
-          inspection_history: JSON.stringify(inspectionHistory),
-          notes: existingRecord.notes || '',
-          created_by: existingRecord.created_by,
-          modified_by: currentUser.username,
-          created_at: existingRecord.created_at,
-          modified_at: new Date().toISOString()
-        };
-      } else {
-        // Full form data (new component or S/N changed)
-        let measure1_pn, measure2_pn;
-        if (componentConfig.singleSerial) {
-          const singlePN = document.getElementById('single-pn').value;
-          measure1_pn = singlePN;
-          measure2_pn = singlePN;
+        const measures = componentConfig.measures;
+        const existingRecord = isEdit ? allRecords.find(r => r.__backendId === editId) : null;
+        const hasHistory = existingRecord && existingRecord.inspection_history && existingRecord.inspection_history !== '[]';
+        const isQuickUpdate = hasHistory && document.getElementById('full-form-fields').classList.contains('hidden');
+        const snChoice = document.querySelector('input[name="sn-change"]:checked')?.value || 'no';
+        const selectedUnit = getSelectedUnit();
+
+        let measure1_current;
+        let measure2_current;
+        let inspection_date_iso;
+
+        if (isQuickUpdate && snChoice === 'no') {
+          measure1_current = parseFloat(document.getElementById('quick-measure1').value);
+          measure2_current = parseFloat(document.getElementById('quick-measure2').value);
+          if (selectedUnit === 'mm') {
+            measure1_current = mmToInch(measure1_current);
+            measure2_current = mmToInch(measure2_current);
+          }
+          inspection_date_iso = parseInspectionDate(document.getElementById('quick-inspection-date').value);
         } else {
-          measure1_pn = document.getElementById('measure1-pn').value;
-          measure2_pn = document.getElementById('measure2-pn').value;
+          measure1_current = parseFloat(document.getElementById('measure1-current').value);
+          measure2_current = parseFloat(document.getElementById('measure2-current').value);
+          if (selectedUnit === 'mm') {
+            measure1_current = mmToInch(measure1_current);
+            measure2_current = mmToInch(measure2_current);
+          }
+          inspection_date_iso = parseInspectionDate(document.getElementById('inspection-date').value);
+        }
+
+        const measurementError = validateMeasurementPair(measure1_current, measure2_current);
+        if (measurementError) {
+          showToast(measurementError, 'error');
+          return;
+        }
+
+        if (!inspection_date_iso) {
+          showToast('Informe uma data de inspeção válida.', 'error');
+          return;
+        }
+
+        const componentColor = document.getElementById('component-color').value;
+        if (!componentColor) {
+          showToast('Cor do componente não identificada.', 'error');
+          return;
+        }
+
+        const limits = MAX_CLEARANCE[currentAircraft.model]?.[currentComponentType];
+        if (!limits) {
+          showToast('Limite do componente não encontrado.', 'error');
+          return;
+        }
+
+        const measure1_max = limits.max_inch;
+        const measure2_max = limits.max_inch;
+
+        let inspectionHistory = [];
+        if (existingRecord && existingRecord.inspection_history) {
+          try {
+            inspectionHistory = JSON.parse(existingRecord.inspection_history);
+            if (!Array.isArray(inspectionHistory)) inspectionHistory = [];
+          } catch (e) {
+            inspectionHistory = [];
+          }
+        }
+
+        inspectionHistory.unshift({
+          date: inspection_date_iso,
+          measure1: measure1_current,
+          measure1_max: measure1_max,
+          measure2: measure2_current,
+          measure2_max: measure2_max
+        });
+        inspectionHistory = inspectionHistory.slice(0, 3);
+
+        let data;
+        if (isQuickUpdate && snChoice === 'no' && existingRecord) {
+          data = {
+            type: 'rodend_component',
+            username: '',
+            password: '',
+            needs_password_change: false,
+            aircraft_prefix: currentAircraft.prefix,
+            aircraft_model: currentAircraft.model,
+            component_type: currentComponentType,
+            component_color: componentColor,
+            measure1_name: measures[0],
+            measure1_part_number: existingRecord.measure1_part_number,
+            measure1_serial_number: existingRecord.measure1_serial_number,
+            measure1_current: measure1_current,
+            measure1_max: measure1_max,
+            measure1_alert: existingRecord.measure1_alert,
+            measure2_name: measures[1],
+            measure2_part_number: existingRecord.measure2_part_number,
+            measure2_serial_number: existingRecord.measure2_serial_number,
+            measure2_current: measure2_current,
+            measure2_max: measure2_max,
+            measure2_alert: existingRecord.measure2_alert,
+            link_serial_number: existingRecord.link_serial_number,
+            last_inspection_date: inspection_date_iso,
+            inspection_history: JSON.stringify(inspectionHistory),
+            notes: existingRecord.notes || '',
+            created_by: existingRecord.created_by,
+            modified_by: currentUser.username,
+            created_at: existingRecord.created_at,
+            modified_at: new Date().toISOString()
+          };
+        } else {
+          let measure1_pn;
+          let measure2_pn;
+          if (componentConfig.singleSerial) {
+            const singlePN = (document.getElementById('single-pn').value || '').trim();
+            if (!singlePN) {
+              showToast('Informe o Part Number do componente.', 'error');
+              return;
+            }
+            measure1_pn = singlePN;
+            measure2_pn = singlePN;
+          } else {
+            measure1_pn = (document.getElementById('measure1-pn').value || '').trim();
+            measure2_pn = (document.getElementById('measure2-pn').value || '').trim();
+            if (!measure1_pn || !measure2_pn) {
+              showToast('Informe os Part Numbers dos dois lados do componente.', 'error');
+              return;
+            }
+          }
+          
+          data = {
+            type: 'rodend_component',
+            username: '',
+            password: '',
+            needs_password_change: false,
+            aircraft_prefix: currentAircraft.prefix,
+            aircraft_model: currentAircraft.model,
+            component_type: currentComponentType,
+            component_color: componentColor,
+            measure1_name: measures[0],
+            measure1_part_number: measure1_pn,
+            measure1_serial_number: componentConfig.singleSerial ? '' : (document.getElementById('measure1-serial').value || ''),
+            measure1_current: measure1_current,
+            measure1_max: measure1_max,
+            measure1_alert: parseInt(document.getElementById('measure1-alert').value || '80', 10),
+            measure2_name: measures[1],
+            measure2_part_number: measure2_pn,
+            measure2_serial_number: componentConfig.singleSerial ? '' : (document.getElementById('measure2-serial').value || ''),
+            measure2_current: measure2_current,
+            measure2_max: measure2_max,
+            measure2_alert: parseInt(document.getElementById('measure2-alert').value || '80', 10),
+            link_serial_number: componentConfig.singleSerial ? (document.getElementById('link-serial').value || '') : '',
+            last_inspection_date: inspection_date_iso,
+            inspection_history: JSON.stringify(inspectionHistory),
+            notes: document.getElementById('notes').value || '',
+            created_by: isEdit && existingRecord ? existingRecord.created_by : currentUser.username,
+            modified_by: isEdit ? currentUser.username : '',
+            created_at: isEdit && existingRecord ? existingRecord.created_at : new Date().toISOString(),
+            modified_at: isEdit ? new Date().toISOString() : ''
+          };
         }
         
-        data = {
-          type: 'rodend_component',
-          username: '',
-          password: '',
-          needs_password_change: false,
-          aircraft_prefix: currentAircraft.prefix,
-          aircraft_model: currentAircraft.model,
-          component_type: currentComponentType,
-          component_color: document.getElementById('component-color').value,
-          measure1_name: measures[0],
-          measure1_part_number: measure1_pn,
-          measure1_serial_number: componentConfig.singleSerial ? '' : (document.getElementById('measure1-serial').value || ''),
-          measure1_current: measure1_current,
-          measure1_max: measure1_max,
-          measure1_alert: parseInt(document.getElementById('measure1-alert').value),
-          measure2_name: measures[1],
-          measure2_part_number: measure2_pn,
-          measure2_serial_number: componentConfig.singleSerial ? '' : (document.getElementById('measure2-serial').value || ''),
-          measure2_current: measure2_current,
-          measure2_max: measure2_max,
-          measure2_alert: parseInt(document.getElementById('measure2-alert').value),
-          link_serial_number: componentConfig.singleSerial ? (document.getElementById('link-serial').value || '') : '',
-          last_inspection_date: inspection_date_iso,
-          inspection_history: JSON.stringify(inspectionHistory),
-          notes: document.getElementById('notes').value || '',
-          created_by: isEdit ? existingRecord.created_by : currentUser.username,
-          modified_by: isEdit ? currentUser.username : '',
-          created_at: isEdit ? existingRecord.created_at : new Date().toISOString(),
-          modified_at: isEdit ? new Date().toISOString() : ''
-        };
-      }
-      
-      let result;
-      if (isEdit) {
-        result = await updateRecord({ ...existingRecord, ...data });
-      } else {
-        result = await createRecord(data);
-      }
-      
-      if (result.isOk) {
-        showToast(isEdit ? 'Componente atualizado!' : 'Componente cadastrado!', 'success');
-        componentModal.classList.add('hidden');
-        componentForm.reset();
-        if (!colorSelectionView.classList.contains('hidden')) {
-          showComponentDetails(currentComponentType);
+        const result = isEdit
+          ? await updateRecord({ ...existingRecord, ...data })
+          : await createRecord(data);
+        
+        if (result.isOk) {
+          showToast(isEdit ? 'Componente atualizado!' : 'Componente cadastrado!', 'success');
+          componentModal.classList.add('hidden');
+          componentForm.reset();
+          if (!colorSelectionView.classList.contains('hidden')) {
+            renderComponentsForType(currentComponentType);
+          }
+        } else {
+          showToast(result.error || 'Erro ao salvar componente', 'error');
         }
-      } else {
-        showToast('Erro ao salvar componente', 'error');
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || 'Erro ao salvar componente', 'error');
+      } finally {
+        isSubmitting = false;
+        submitBtn.disabled = false;
+        submitBtn.textContent = isEdit ? 'Salvar Alterações' : 'Cadastrar';
       }
-      
-      isSubmitting = false;
-      submitBtn.disabled = false;
-      submitBtn.textContent = isEdit ? 'Salvar Alterações' : 'Cadastrar';
     });
 
     // Unit Selection Event Listeners
@@ -5115,6 +2770,7 @@
       await onConfigChange(defaultConfig);
       try {
         await loadRecords();
+        restoreRodEndSessionState();
       } catch (error) {
         console.error(error);
         showToast('Erro ao carregar dados do ROD END', 'error');
