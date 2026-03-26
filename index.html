@@ -3,7 +3,7 @@
  <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Controle de Panes</title>
+  <title>Controle Técnico da Frota</title>
   <script src="/_sdk/element_sdk.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -118,7 +118,7 @@
       secondary_action: "#64748b",
       font_family: "Inter",
       font_size: 16,
-      titulo_principal: "Controle de Panes",
+      titulo_principal: "Controle Técnico da Frota",
       subtitulo: "Sistema de Gerenciamento de Aeronaves"
     };
 
@@ -678,9 +678,9 @@
                     <div id="avionicosPaneGroup" class="hidden mb-4">
                       <label for="filtroAvionicosPane" class="block mb-2" style="font-size: ${fontSize}px;">Pane em aberto</label>
                       <select id="filtroAvionicosPane" class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;">
-                        <option value="">Selecione uma pane em aberto</option>
+                        <option value="">Selecione uma discrepância em aberto</option>
                       </select>
-                      <p style="font-size: ${fontSize * 0.8}px; opacity: 0.7; margin-top: 6px;">Ao selecionar uma pane, o relatório será gerado com todas as etapas já cumpridas dessa pane específica.</p>
+                      <p style="font-size: ${fontSize * 0.8}px; opacity: 0.7; margin-top: 6px;">Ao selecionar uma discrepância, o relatório será gerado com todas as etapas já cumpridas dessa discrepância específica.</p>
                     </div>
 
                     <div class="flex gap-3">
@@ -780,8 +780,8 @@
 
       const cards = [
         { label: 'Aeronaves', value: aeronaves.length, icon: '🚁' },
-        { label: 'Com panes abertas', value: aeronavesComPanes, icon: '⚠️' },
-        { label: 'Panes monitoradas', value: panesLancadas.length, icon: '📝' },
+        { label: 'Com discrepâncias abertas', value: aeronavesComPanes, icon: '⚠️' },
+        { label: 'Discrepâncias monitoradas', value: panesLancadas.length, icon: '📝' },
         { label: 'Em progresso', value: panesEmProgresso.length, icon: '🛠️' },
         { label: 'Pendências abertas', value: pendenciasFiltradas.length, icon: '📦' },
         { label: 'Etapas registradas', value: etapasFiltradas.length, icon: '📋' },
@@ -834,7 +834,7 @@
             <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
               <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
                 <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
-                  <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">📈 Panes por ATA</h2>
+                  <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">📈 Discrepâncias por ATA</h2>
                   <span style="font-size: ${fontSize * 0.85}px; opacity: 0.7;">Top 10 ATAs do período</span>
                 </div>
                 <div style="height: 320px;">
@@ -844,7 +844,7 @@
 
               <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
                 <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
-                  <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">🚁 Panes por Aeronave</h2>
+                  <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">🚁 Discrepâncias por Aeronave</h2>
                   <span style="font-size: ${fontSize * 0.85}px; opacity: 0.7;">Clique para abrir a aeronave</span>
                 </div>
                 <div style="height: 320px;">
@@ -856,7 +856,7 @@
             <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
               <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
                 <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
-                  <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">📌 Status das Panes</h2>
+                  <h2 class="font-bold" style="font-size: ${fontSize * 1.3}px;">📌 Status das Discrepâncias</h2>
                   <span style="font-size: ${fontSize * 0.85}px; opacity: 0.7;">Distribuição do período</span>
                 </div>
                 <div style="height: 300px;">
@@ -895,22 +895,22 @@
                   </div>
                   <div class="rounded p-4" style="background-color: ${bgColor};">
                     <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Aeronave com mais panes</p>
-                    <p class="font-bold" style="font-size: ${fontSize * 1.15}px;">${lider ? `${lider.prefixo} • ${lider.total} pane${lider.total !== 1 ? 's' : ''}` : 'Nenhuma pane cadastrada'}</p>
+                    <p class="font-bold" style="font-size: ${fontSize * 1.15}px;">${lider ? `${lider.prefixo} • ${lider.total} pane${lider.total !== 1 ? 's' : ''}` : 'Nenhuma discrepância cadastrada'}</p>
                   </div>
                   <div class="rounded p-4" style="background-color: ${bgColor};">
-                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Panes ativas</p>
+                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Discrepâncias ativas</p>
                     <p class="font-bold" style="font-size: ${fontSize * 1.15}px;">${panesAtivas.length}</p>
                   </div>
                   <div class="rounded p-4" style="background-color: ${bgColor};">
-                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Panes finalizadas</p>
+                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Discrepâncias finalizadas</p>
                     <p class="font-bold" style="font-size: ${fontSize * 1.15}px;">${panesFinalizadas.length}</p>
                   </div>
                   <div class="rounded p-4" style="background-color: ${bgColor};">
-                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Panes aguardando material / transferência</p>
+                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Discrepâncias aguardando material / transferência</p>
                     <p class="font-bold" style="font-size: ${fontSize * 1.15}px;">${panesAguardando.length}</p>
                   </div>
                   <div class="rounded p-4" style="background-color: ${bgColor};">
-                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Aeronaves sem panes abertas</p>
+                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 6px;">Aeronaves sem discrepâncias abertas</p>
                     <p class="font-bold" style="font-size: ${fontSize * 1.15}px;">${Math.max(aeronaves.length - aeronavesComPanes, 0)}</p>
                   </div>
                 </div>
@@ -919,7 +919,7 @@
               <div class="rounded-lg p-6" style="background-color: ${surfaceColor}; box-shadow: 0 8px 24px rgba(0,0,0,0.22);">
                 <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.3}px;">⚠️ Aeronaves Críticas</h2>
                 ${aeronavesCriticas.length === 0 ? `
-                  <p style="font-size: ${fontSize}px; opacity: 0.7;">Nenhuma aeronave com pane aberta no período.</p>
+                  <p style="font-size: ${fontSize}px; opacity: 0.7;">Nenhuma aeronave com discrepância aberta no período.</p>
                 ` : `
                   <div class="space-y-3">
                     ${aeronavesCriticas.map((item, index) => `
@@ -1011,14 +1011,14 @@
             ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'inspetor') ? `
               <div class="mb-6">
                 <button id="addPaneBtn" class="px-6 py-3 rounded-lg font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
-                  + Adicionar Pane
+                  + Adicionar Discrepância
                 </button>
               </div>
             ` : ''}
 
             ${panes.length > 0 ? `
               <div class="mb-6 rounded-lg p-6" style="background-color: ${surfaceColor};">
-                <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.3}px;">📊 Distribuição de Panes por ATA</h2>
+                <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.3}px;">📊 Distribuição de Discrepâncias por ATA</h2>
                 <div style="max-width: 280px; margin: 0 auto;">
                   <canvas id="ataChart"></canvas>
                 </div>
@@ -1028,7 +1028,7 @@
             <div class="mb-6">
               <div class="flex gap-2 border-b overflow-x-auto" style="border-color: ${secondaryColor}; background-color: rgba(0, 0, 0, 0.4); padding: 8px; border-radius: 8px 8px 0 0;">
                 <button class="tab-btn px-6 py-3 font-semibold whitespace-nowrap" data-tab="lancadas" style="font-size: ${fontSize}px; ${currentTab === 'lancadas' ? `border-bottom: 3px solid ${primaryColor}; background-color: rgba(59, 130, 246, 0.2);` : 'opacity: 0.8;'} border-radius: 6px;">
-                  Lançadas (${panesLancadas.length})
+                  Monitoradas (${panesLancadas.length})
                 </button>
                 <button class="tab-btn px-6 py-3 font-semibold whitespace-nowrap" data-tab="em_progresso_mec" style="font-size: ${fontSize}px; ${currentTab === 'em_progresso_mec' ? `border-bottom: 3px solid ${primaryColor}; background-color: rgba(59, 130, 246, 0.2);` : 'opacity: 0.8;'} border-radius: 6px;">
                   🔩 Em Progresso Mec (${panesEmProgressoMec.length})
@@ -1053,10 +1053,10 @@
             ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'inspetor') ? `
               <div id="addPaneModal" class="hidden fixed inset-0 items-center justify-center p-4" style="background-color: rgba(0,0,0,0.7); z-index: 1000;">
                 <div class="w-full max-w-md rounded-lg p-6 overflow-y-auto" style="background-color: ${surfaceColor}; max-height: 90%;">
-                  <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.5}px;">Nova Pane</h2>
+                  <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.5}px;">Nova Discrepância</h2>
                   <form id="paneForm">
                     <div class="mb-4">
-                      <label for="paneDescricao" class="block mb-2" style="font-size: ${fontSize}px;">Descrição da Pane *</label>
+                      <label for="paneDescricao" class="block mb-2" style="font-size: ${fontSize}px;">Descrição da Discrepância *</label>
                       <textarea id="paneDescricao" required rows="3" class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;"></textarea>
                     </div>
                     <div class="mb-4">
@@ -1106,7 +1106,7 @@
       if (panes.length === 0) {
         return `
           <div class="text-center py-16 rounded-lg" style="background-color: ${surfaceColor};">
-            <p style="font-size: ${fontSize * 1.2}px; opacity: 0.6;">Nenhuma pane nesta categoria</p>
+            <p style="font-size: ${fontSize * 1.2}px; opacity: 0.6;">Nenhuma discrepância nesta categoria</p>
           </div>
         `;
       }
@@ -1224,7 +1224,7 @@
             ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'inspetor') ? `
               <div class="mb-4 flex justify-end">
                 <button id="editPaneBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
-                  ✏️ Editar Pane
+                  ✏️ Editar Discrepância
                 </button>
               </div>
             ` : ''}
@@ -1241,7 +1241,7 @@
               ${(selectedPane.paneStatus === 'lancada' || selectedPane.paneStatus === 'em_progresso') ? `
                 <div class="mb-6">
                   <button id="finalizarPaneBtn" class="w-full px-6 py-3 rounded-lg font-semibold" style="background-color: #22c55e; color: white; font-size: ${fontSize}px;">
-                    ✓ Finalizar Pane
+                    ✓ Finalizar Discrepância
                   </button>
                 </div>
               ` : ''}
@@ -1459,10 +1459,10 @@
             ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'inspetor') ? `
               <div id="editPaneModal" class="hidden fixed inset-0 items-center justify-center p-4" style="background-color: rgba(0,0,0,0.7); z-index: 1000;">
                 <div class="w-full max-w-md rounded-lg p-6 overflow-y-auto" style="background-color: ${surfaceColor}; max-height: 90%;">
-                  <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.5}px;">Editar Pane</h2>
+                  <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.5}px;">Editar Discrepância</h2>
                   <form id="editPaneForm">
                     <div class="mb-4">
-                      <label for="editPaneDescricao" class="block mb-2" style="font-size: ${fontSize}px;">Descrição da Pane *</label>
+                      <label for="editPaneDescricao" class="block mb-2" style="font-size: ${fontSize}px;">Descrição da Discrepância *</label>
                       <textarea id="editPaneDescricao" required rows="3" class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;"></textarea>
                     </div>
                     <div class="mb-4">
@@ -1674,7 +1674,7 @@
           avionicosPaneGroup.classList.toggle('hidden', modo !== 'aeronave');
         }
         if (modo !== 'aeronave' && filtroAvionicosPane) {
-          filtroAvionicosPane.innerHTML = '<option value="">Selecione uma pane em aberto</option>';
+          filtroAvionicosPane.innerHTML = '<option value="">Selecione uma discrepância em aberto</option>';
         }
       }
 
@@ -1682,7 +1682,7 @@
         relatorioAvionicosBtn.addEventListener('click', () => {
           relatorioAvionicosForm?.reset();
           if (filtroAvionicosPane) {
-            filtroAvionicosPane.innerHTML = '<option value="">Selecione uma pane em aberto</option>';
+            filtroAvionicosPane.innerHTML = '<option value="">Selecione uma discrepância em aberto</option>';
           }
           atualizarVisibilidadeRelatorioAvionicos();
           relatorioAvionicosModal.classList.remove('hidden');
@@ -1701,7 +1701,7 @@
         avionicosModoSelect.addEventListener('change', () => {
           atualizarVisibilidadeRelatorioAvionicos();
           if (filtroAvionicosPane) {
-            filtroAvionicosPane.innerHTML = '<option value="">Selecione uma pane em aberto</option>';
+            filtroAvionicosPane.innerHTML = '<option value="">Selecione uma discrepância em aberto</option>';
           }
         });
       }
@@ -2083,7 +2083,7 @@
 
     function preencherSelectPanesAvionicosAbertas(aeronaveId, selectElement) {
       if (!selectElement) return;
-      selectElement.innerHTML = '<option value="">Selecione uma pane em aberto</option>';
+      selectElement.innerHTML = '<option value="">Selecione uma discrepância em aberto</option>';
 
       if (!aeronaveId) return;
 
@@ -2214,7 +2214,7 @@
             <p><strong>Status:</strong> ${statusLabel}</p>
             <p><strong>Responsável:</strong> ${pane.paneResponsavel || '-'}</p>
             <p><strong>Data de criação:</strong> ${dataCriacao}</p>
-            <p style="margin-top: 10px;"><strong>Descrição da Pane:</strong><br>${pane.paneDescricao || '-'}</p>
+            <p style="margin-top: 10px;"><strong>Descrição da Discrepância:</strong><br>${pane.paneDescricao || '-'}</p>
           </div>
 
           <h2>📋 Etapas Registradas (${etapas.length})</h2>
@@ -2653,7 +2653,7 @@
         const ranking = await response.json();
 
         if (!Array.isArray(ranking) || ranking.length === 0) {
-          container.innerHTML = `<p style="font-size: ${fontSize}px; opacity: 0.7;">Nenhuma pane aberta encontrada para este grupo.</p>`;
+          container.innerHTML = `<p style="font-size: ${fontSize}px; opacity: 0.7;">Nenhuma discrepância aberta encontrada para este grupo.</p>`;
           return;
         }
 
@@ -3149,7 +3149,7 @@
             modal.classList.add('hidden');
             modal.classList.remove('flex');
             form.reset();
-            showToast('Pane adicionada com sucesso!', 'success');
+            showToast('Discrepância adicionada com sucesso!', 'success');
           } else {
             showToast('Erro ao adicionar pane', 'error');
           }
@@ -3358,7 +3358,7 @@
                 etapaFoto3: null,
                 criadoEm: new Date().toISOString()
               });
-              showToast('Pane finalizada com sucesso!', 'success');
+              showToast('Discrepância finalizada com sucesso!', 'success');
             } else {
               showToast('Erro ao finalizar pane', 'error');
             }
@@ -3413,7 +3413,7 @@
             editingPane = null;
             editPaneModal.classList.add('hidden');
             editPaneModal.classList.remove('flex');
-            showToast('Pane atualizada com sucesso!', 'success');
+            showToast('Discrepância atualizada com sucesso!', 'success');
           } else {
             showToast('Erro ao atualizar pane', 'error');
           }
