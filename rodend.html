@@ -298,7 +298,7 @@
   </div><!-- ========== MAIN APP ========== -->
   <div id="main-app" class="hidden min-h-full w-full"><!-- ========== DASHBOARD VIEW ========== -->
    <div id="dashboard-view" class="w-full p-4 md:p-6 lg:p-8">
-    <div class="max-w-7xl mx-auto"><!-- Header -->
+    <div class="max-w-[1700px] mx-auto"><!-- Header -->
      <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-8 gap-4">
       <div>
        <h1 id="dashboard-title" class="text-3xl md:text-4xl font-bold text-white mb-2">Controle de Folga ROD END</h1>
@@ -401,7 +401,7 @@
     </div>
    </div><!-- ========== AIRCRAFT DETAILS VIEW ========== -->
    <div id="aircraft-details-view" class="hidden w-full p-4 md:p-6 lg:p-8">
-    <div class="max-w-7xl mx-auto">
+    <div class="max-w-[1700px] mx-auto">
      <div class="flex items-center justify-between mb-8">
       <div class="flex-1"><button id="back-to-dashboard" class="text-slate-400 hover:text-white mb-4 flex items-center gap-2 transition-colors">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
@@ -1366,7 +1366,7 @@
       availableColors.forEach(color => {
         const existingComp = existingComponents.find(c => c.component_color === color);
         const card = document.createElement('div');
-        card.className = 'glass-card rounded-xl p-6 cursor-pointer hover:border-blue-500/50 transition-all';
+        card.className = 'glass-card rounded-xl p-6 cursor-pointer hover:border-blue-500/50 transition-all w-full';
         
         if (existingComp) {
           const status = getComponentStatus(existingComp);
@@ -1433,34 +1433,21 @@
             historyHTML += '</div>';
           }
           
-          // Tail Rotor Link pode ter P/N único (EC175) ou P/N separados (AW139)
-          const isTailRotorLink = currentComponentType === 'Tail Rotor Link';
-          const formatPartNumberBlock = (pnValue) => {
-            const rawPn = String(pnValue || '').trim();
-            if (!rawPn) return '';
-
-            if (rawPn.includes(' (P/N ')) {
-              const parts = rawPn.split(' (P/N ');
-              const mainText = parts[0] || rawPn;
-              const pnText = (parts[1] || '').replace(')', '').trim();
-              return `
-                <div class="w-full mb-3 text-center">
-                  <p class="text-white text-xs font-bold leading-tight">${mainText}</p>
-                  ${pnText ? `<p class="text-slate-300 text-xs leading-tight">(P/N ${pnText})</p>` : ''}
-                </div>
-              `;
-            }
-
-            return `
-              <div class="w-full mb-3 text-center">
-                <p class="text-white text-xs font-bold leading-tight">P/N ${rawPn}</p>
-              </div>
-            `;
-          };
-
-          const partNumberDisplay = isTailRotorLink
-            ? formatPartNumberBlock(existingComp.measure1_part_number)
+          // Show single consolidated P/N only for components configured with singleSerial
+          const useSinglePartNumberDisplay = !!config.singleSerial;
+          const singlePartNumberText = String(existingComp.measure1_part_number || '');
+          const singlePNBase = singlePartNumberText.includes(' (P/N ')
+            ? singlePartNumberText.split(' (P/N ')[0]
+            : singlePartNumberText;
+          const singlePNSuffix = singlePartNumberText.includes(' (P/N ')
+            ? singlePartNumberText.split(' (P/N ')[1].replace(')', '')
             : '';
+          const partNumberDisplay = useSinglePartNumberDisplay ? `
+            <div class="w-full mb-3 text-center">
+              <p class="text-white text-xs font-bold leading-tight">${singlePNBase}</p>
+              ${singlePNSuffix ? `<p class="text-slate-300 text-xs leading-tight">(P/N ${singlePNSuffix})</p>` : ''}
+            </div>
+          ` : '';
           
           card.innerHTML = `
             <div class="flex flex-col items-center py-4 px-3">
@@ -1469,8 +1456,9 @@
               ${partNumberDisplay}
               
               <div class="w-full space-y-2 mb-3">
-                <div class="measure-zoom-trigger bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-lg p-3 border border-blue-500/20 cursor-pointer hover:border-blue-500/50 transition-all" data-measure="1">
+                <div class="measure-zoom-trigger bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-lg p-3 border border-blue-500/20 cursor-pointer hover:border-blue-500/50 transition-all w-full" data-measure="1">
                   <p class="text-slate-300 text-xs mb-1">${existingComp.measure1_name}</p>
+                  ${!useSinglePartNumberDisplay ? `<p class="text-slate-300 text-xs mb-1 whitespace-nowrap text-left">${existingComp.measure1_part_number || ''}</p>` : ''}
                   <p class="text-white text-2xl font-bold">${inchToMm(existingComp.measure1_current).toFixed(2)} mm</p>
                   <div class="progress-bar mt-1">
                     <div class="progress-fill ${m1Percent >= 100 ? 'bg-red-500' : m1Percent >= existingComp.measure1_alert ? 'bg-amber-500' : 'bg-green-500'}" 
@@ -1478,8 +1466,9 @@
                   </div>
                 </div>
                 
-                <div class="measure-zoom-trigger bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-lg p-3 border border-blue-500/20 cursor-pointer hover:border-blue-500/50 transition-all" data-measure="2">
+                <div class="measure-zoom-trigger bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-lg p-3 border border-blue-500/20 cursor-pointer hover:border-blue-500/50 transition-all w-full" data-measure="2">
                   <p class="text-slate-300 text-xs mb-1">${existingComp.measure2_name}</p>
+                  ${!useSinglePartNumberDisplay ? `<p class="text-slate-300 text-xs mb-1 whitespace-nowrap text-left">${existingComp.measure2_part_number || ''}</p>` : ''}
                   <p class="text-white text-2xl font-bold">${inchToMm(existingComp.measure2_current).toFixed(2)} mm</p>
                   <div class="progress-bar mt-1">
                     <div class="progress-fill ${m2Percent >= 100 ? 'bg-red-500' : m2Percent >= existingComp.measure2_alert ? 'bg-amber-500' : 'bg-green-500'}" 
@@ -1544,11 +1533,11 @@
               <h3 class="text-white font-bold text-base mb-2">${getColorBadge(color)}</h3>
               
               <div class="w-full space-y-2 mb-3">
-                <div class="bg-slate-700/30 rounded p-2">
+                <div class="bg-slate-700/30 rounded p-2 w-full">
                   <p class="text-slate-400 text-xs mb-1">${config.measures[0]}</p>
                   <p class="text-slate-300 text-xs">${config.partNumbers ? config.partNumbers[config.measures[0]] : 'A definir'}</p>
                 </div>
-                <div class="bg-slate-700/30 rounded p-2">
+                <div class="bg-slate-700/30 rounded p-2 w-full">
                   <p class="text-slate-400 text-xs mb-1">${config.measures[1]}</p>
                   <p class="text-slate-300 text-xs">${config.partNumbers ? config.partNumbers[config.measures[1]] : 'A definir'}</p>
                 </div>
@@ -1609,8 +1598,8 @@
         }
       }
       
-      // Reset unit selection to millimeters
-      document.querySelector('input[name="unit"][value="mm"]').checked = true;
+      // Reset unit selection to inches
+      document.querySelector('input[name="unit"][value="inch"]').checked = true;
       updateUnitSelection();
       updateLimitDisplay();
       
