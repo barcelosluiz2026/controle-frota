@@ -3,7 +3,7 @@
  <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Controle de Medidas de ROD END</title>
+  <title>Controle de Folga ROD END</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
@@ -261,7 +261,7 @@
       <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
       </svg>
      </div>
-     <h1 id="login-title" class="text-3xl font-bold text-white mb-2">Controle de Medidas de ROD END</h1>
+     <h1 id="login-title" class="text-3xl font-bold text-white mb-2">Controle de Folga ROD END</h1>
      <p id="login-subtitle" class="text-slate-300">Sistema de Monitoramento de Helicópteros</p>
     </div>
     <form id="login-form" class="space-y-5">
@@ -301,7 +301,7 @@
     <div class="max-w-[1700px] mx-auto"><!-- Header -->
      <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-8 gap-4">
       <div>
-       <h1 id="dashboard-title" class="text-3xl md:text-4xl font-bold text-white mb-2">Controle de Medidas de ROD END</h1>
+       <h1 id="dashboard-title" class="text-3xl md:text-4xl font-bold text-white mb-2">Controle de Folga ROD END</h1>
        <p id="dashboard-subtitle" class="text-slate-300">Sistema de Monitoramento de Helicópteros</p>
       </div>
       <div class="flex items-center gap-3">
@@ -503,9 +503,9 @@
       </div>
      </div><!-- Unit Selection -->
      <div class="glass-card rounded-lg p-4"><label class="block text-sm font-medium text-slate-300 mb-3">Unidade de Medida</label>
-      <div class="flex gap-3"><label class="flex-1 cursor-pointer"> <input type="radio" name="unit" value="inch" class="hidden unit-radio" checked>
+      <div class="flex gap-3"><label class="flex-1 cursor-pointer"> <input type="radio" name="unit" value="inch" class="hidden unit-radio">
         <div class="unit-option input-field px-4 py-3 rounded-lg text-center transition-all border-2 border-blue-500"><span class="text-white font-semibold">📏 Polegadas</span>
-        </div></label> <label class="flex-1 cursor-pointer"> <input type="radio" name="unit" value="mm" class="hidden unit-radio">
+        </div></label> <label class="flex-1 cursor-pointer"> <input type="radio" name="unit" value="mm" class="hidden unit-radio" checked>
         <div class="unit-option input-field px-4 py-3 rounded-lg text-center transition-all border-2 border-transparent"><span class="text-white font-semibold">📐 Milímetros</span>
         </div></label>
       </div>
@@ -1017,6 +1017,17 @@
       return inch * 25.4;
     }
 
+    function formatStoredMeasurement(valueInInch, unit = 'mm') {
+      const parsed = Number(valueInInch);
+      if (!Number.isFinite(parsed)) return '-';
+
+      if (unit === 'inch' || unit === 'in' || unit === 'polegadas') {
+        return `${parsed.toFixed(3)} in`;
+      }
+
+      return `${inchToMm(parsed).toFixed(2)} mm`;
+    }
+
     function updateUnitSelection() {
       const selectedUnit = document.querySelector('input[name="unit"]:checked').value;
       const unitOptions = document.querySelectorAll('.unit-option');
@@ -1384,6 +1395,8 @@
           }
           
           // Build history HTML
+          const latestDisplayUnit = existingComp.measurement_unit || inspectionHistory?.[0]?.unit || 'mm';
+
           let historyHTML = '';
           if (inspectionHistory.length > 0) {
             historyHTML = '<div class="w-full mt-3 space-y-1.5">';
@@ -1420,11 +1433,11 @@
                   <div class="text-xs space-y-0.5">
                     <div class="text-center whitespace-nowrap">
                       <span class="text-slate-400">${label1}:</span>
-                      <span class="text-white font-bold ml-1">${inchToMm(hist.measure1).toFixed(2)} mm</span>
+                      <span class="text-white font-bold ml-1">${formatStoredMeasurement(hist.measure1, hist.unit || existingComp.measurement_unit || 'mm')}</span>
                     </div>
                     <div class="text-center whitespace-nowrap">
                       <span class="text-slate-400">${label2}:</span>
-                      <span class="text-white font-bold ml-1">${inchToMm(hist.measure2).toFixed(2)} mm</span>
+                      <span class="text-white font-bold ml-1">${formatStoredMeasurement(hist.measure2, hist.unit || existingComp.measurement_unit || 'mm')}</span>
                     </div>
                   </div>
                 </div>
@@ -1459,7 +1472,7 @@
                 <div class="measure-zoom-trigger bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-lg p-3 border border-blue-500/20 cursor-pointer hover:border-blue-500/50 transition-all w-full" data-measure="1">
                   <p class="text-slate-300 text-xs mb-1">${existingComp.measure1_name}</p>
                   ${!useSinglePartNumberDisplay ? `<p class="text-slate-300 text-xs mb-1 whitespace-nowrap text-left">${existingComp.measure1_part_number || ''}</p>` : ''}
-                  <p class="text-white text-2xl font-bold">${inchToMm(existingComp.measure1_current).toFixed(2)} mm</p>
+                  <p class="text-white text-2xl font-bold">${formatStoredMeasurement(existingComp.measure1_current, latestDisplayUnit)}</p>
                   <div class="progress-bar mt-1">
                     <div class="progress-fill ${m1Percent >= 100 ? 'bg-red-500' : m1Percent >= existingComp.measure1_alert ? 'bg-amber-500' : 'bg-green-500'}" 
                          style="width: ${Math.min(m1Percent, 100)}%"></div>
@@ -1469,7 +1482,7 @@
                 <div class="measure-zoom-trigger bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-lg p-3 border border-blue-500/20 cursor-pointer hover:border-blue-500/50 transition-all w-full" data-measure="2">
                   <p class="text-slate-300 text-xs mb-1">${existingComp.measure2_name}</p>
                   ${!useSinglePartNumberDisplay ? `<p class="text-slate-300 text-xs mb-1 whitespace-nowrap text-left">${existingComp.measure2_part_number || ''}</p>` : ''}
-                  <p class="text-white text-2xl font-bold">${inchToMm(existingComp.measure2_current).toFixed(2)} mm</p>
+                  <p class="text-white text-2xl font-bold">${formatStoredMeasurement(existingComp.measure2_current, latestDisplayUnit)}</p>
                   <div class="progress-bar mt-1">
                     <div class="progress-fill ${m2Percent >= 100 ? 'bg-red-500' : m2Percent >= existingComp.measure2_alert ? 'bg-amber-500' : 'bg-green-500'}" 
                          style="width: ${Math.min(m2Percent, 100)}%"></div>
@@ -1598,8 +1611,8 @@
         }
       }
       
-      // Reset unit selection to inches
-      document.querySelector('input[name="unit"][value="inch"]').checked = true;
+      // Reset unit selection to millimeters
+      document.querySelector('input[name="unit"][value="mm"]').checked = true;
       updateUnitSelection();
       updateLimitDisplay();
       
@@ -1879,232 +1892,227 @@
       });
     }
 
-    
-    
-    
-    
     // ========== PRINT REPORT ==========
-    function getReportModelOrder(model) {
-      const order = { 'EC175': 1, 'AW139': 2 };
-      return order[model] || 99;
-    }
-
-    function formatMm(valueInInch) {
-      const value = Number(valueInInch);
-      if (!Number.isFinite(value)) return '-';
-      return `${inchToMm(value).toFixed(2).replace('.', ',')} mm`;
-    }
-
-    function formatInspectionDate(value) {
-      if (!value) return '-';
-      const d = new Date(value);
-      return Number.isNaN(d.getTime()) ? '-' : d.toLocaleDateString('pt-BR');
-    }
-
-    function getRelevantObservation(notes) {
-      const clean = String(notes || '').trim();
-      return clean || '-';
-    }
-
-    function getStatusPriority(status) {
-      if (status === 'critical') return 1;
-      if (status === 'attention') return 2;
-      return 3;
-    }
-
-    function getStatusLabel(status) {
-      if (status === 'critical') return 'Crítico';
-      if (status === 'attention') return 'Atenção';
-      return 'Normal';
-    }
-
-    function getShortMeasureLabel(label) {
-      const clean = String(label || '').trim();
-      const map = {
-        'Rod End Upper': 'Rod End Upper',
-        'Rod End Lower': 'Rod End Lower',
-        'Upper Rod End': 'Upper Rod End',
-        'Lower Rod End': 'Lower Rod End',
-        'RH DAMPER ROD END': 'RH DAMPER ROD END',
-        'LH DAMPER ROD END': 'LH DAMPER ROD END',
-        'Inboard': 'Inboard',
-        'Outboard': 'Outboard'
-      };
-      return map[clean] || clean || 'Descrição';
-    }
-
-    function getSingleMeasureStatus(valueInInch, maxInInch, alertPercent) {
-      const value = Number(valueInInch);
-      const max = Number(maxInInch);
-      const alert = Number(alertPercent);
-      if (!Number.isFinite(value) || !Number.isFinite(max) || max <= 0) return 'normal';
-      const percent = (value / max) * 100;
-      if (percent >= 100) return 'critical';
-      if (Number.isFinite(alert) && percent >= alert) return 'attention';
-      return 'normal';
-    }
-
-    function createSubRows(component) {
-      const rows = [];
-
-      const pushRow = (label, pn, sn, measure, status) => {
-        rows.push({
-          color: component.component_color || '-',
-          description: label || '-',
-          pn: pn || '-',
-          sn: sn || '-',
-          measure: measure || '-',
-          status: getStatusLabel(status),
-          statusColor: status === 'critical' ? '#991b1b' : status === 'attention' ? '#92400e' : '#065f46',
-          date: formatInspectionDate(component.last_inspection_date),
-          notes: getRelevantObservation(component.notes)
-        });
-      };
-
-      const measure1Label = getShortMeasureLabel(component.measure1_name);
-      const measure2Label = getShortMeasureLabel(component.measure2_name);
-
-      const measure1Pn = String(component.measure1_part_number || '').trim();
-      const measure2Pn = String(component.measure2_part_number || '').trim();
-      const measure1Sn = String(component.measure1_serial_number || '').trim();
-      const measure2Sn = String(component.measure2_serial_number || '').trim();
-
-      const status1 = getSingleMeasureStatus(component.measure1_current, component.measure1_max, component.measure1_alert);
-      const status2 = getSingleMeasureStatus(component.measure2_current, component.measure2_max, component.measure2_alert);
-
-      const include1 = status1 === 'critical' || status1 === 'attention';
-      const include2 = status2 === 'critical' || status2 === 'attention';
-
-      if (include1) {
-        pushRow(measure1Label, measure1Pn, measure1Sn, formatMm(component.measure1_current), status1);
-      }
-
-      if (include2) {
-        pushRow(measure2Label, measure2Pn, measure2Sn, formatMm(component.measure2_current), status2);
-      }
-
-      if (!include1 && !include2) {
-        const overallStatus = getComponentStatus(component).status;
-        pushRow(
-          `${measure1Label} / ${measure2Label}`,
-          measure1Pn === measure2Pn ? measure1Pn : `${measure1Pn} | ${measure2Pn}`,
-          measure1Sn === measure2Sn ? (measure1Sn || '-') : `${measure1Sn || '-'} | ${measure2Sn || '-'}`,
-          `${measure1Label}: ${formatMm(component.measure1_current)} | ${measure2Label}: ${formatMm(component.measure2_current)}`,
-          overallStatus
-        );
-      }
-
-      return rows;
-    }
-
     function generateReport() {
       const dataRecords = getDataRecords();
       const components = dataRecords.filter(r => r.component_type !== '_aircraft_marker');
-
-      if (components.length === 0) {
-        showToast('Nenhum componente cadastrado para gerar relatório.', 'error');
+      
+      // Filter components near limit (>= alert threshold)
+      const alertComponents = components.filter(comp => {
+        const m1Percent = (comp.measure1_current / comp.measure1_max) * 100;
+        const m2Percent = (comp.measure2_current / comp.measure2_max) * 100;
+        const maxPercent = Math.max(m1Percent, m2Percent);
+        return maxPercent >= comp.measure1_alert;
+      });
+      
+      if (alertComponents.length === 0) {
+        showToast('Nenhum componente perto do limite!', 'error');
         return;
       }
-
-      const flagged = components
-        .map((comp) => ({ comp, status: getComponentStatus(comp) }))
-        .filter(({ status }) => status.status === 'attention' || status.status === 'critical');
-
-      if (flagged.length === 0) {
-        showToast('Nenhum componente requer atenção no momento.', 'success');
-        return;
-      }
-
-      const grouped = {};
-      flagged.forEach(({ comp, status }) => {
-        const model = comp.aircraft_model || '';
-        const prefix = comp.aircraft_prefix || '';
-        const componentType = comp.component_type || '';
-        const key = `${model}__${prefix}__${componentType}`;
-        if (!grouped[key]) {
-          grouped[key] = { model, prefix, componentType, items: [] };
+      
+      // Group by aircraft (prefix + model)
+      const groupedByAircraft = {};
+      alertComponents.forEach(comp => {
+        const key = `${comp.aircraft_prefix}_${comp.aircraft_model}`;
+        if (!groupedByAircraft[key]) {
+          groupedByAircraft[key] = {
+            prefix: comp.aircraft_prefix,
+            model: comp.aircraft_model,
+            components: []
+          };
         }
-        grouped[key].items.push({ comp, status });
+        groupedByAircraft[key].components.push(comp);
       });
-
-      const groups = Object.values(grouped).sort((a, b) => {
-        const modelOrder = getReportModelOrder(a.model) - getReportModelOrder(b.model);
-        if (modelOrder !== 0) return modelOrder;
-        const prefixCmp = String(a.prefix).localeCompare(String(b.prefix));
-        if (prefixCmp !== 0) return prefixCmp;
-        return String(a.componentType).localeCompare(String(b.componentType));
-      });
-
+      
+      // Generate HTML report
       const now = new Date();
       const dateStr = now.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
       const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-
+      
       let html = `
-        <div style="font-family: Arial, sans-serif; color: #000; padding: 12px;">
-          <div style="margin-bottom: 10px;">
-            <div style="font-size: 22px; font-weight: 700;">Relatório ROD END - Itens que Requerem Atenção</div>
-            <div style="font-size: 12px;">Data/Hora: ${dateStr} ${timeStr}</div>
-            <div style="font-size: 12px;">Gerado por: ${currentUser.username}</div>
+        <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 1200px; margin: 0 auto; background: white !important; color: black !important;">
+          <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #333; padding-bottom: 20px;">
+            <h1 style="margin: 0; font-size: 24px; color: #000;">RELATÓRIO DE FOLGAS PRÓXIMAS AO LIMITE</h1>
+            <p style="margin: 10px 0 0 0; font-size: 14px; color: #666;">Sistema de Monitoramento de Helicópteros</p>
+            <p style="margin: 5px 0 0 0; font-size: 12px; color: #666;">Gerado em: ${dateStr} às ${timeStr}</p>
           </div>
       `;
-
-      groups.forEach((group) => {
-        const items = group.items.sort((a, b) => {
-          const prio = getStatusPriority(a.status.status) - getStatusPriority(b.status.status);
-          if (prio !== 0) return prio;
-          return String(a.comp.component_color || '').localeCompare(String(b.comp.component_color || ''));
-        });
-
+      
+      // Iterate through each aircraft
+      Object.values(groupedByAircraft).forEach((aircraft, aircraftIdx) => {
         html += `
-          <table style="width:100%; border-collapse:collapse; margin-bottom: 14px; font-size:12px;">
-            <tr>
-              <td style="border:1px solid #000; padding:4px; font-weight:700; width:8%;">${group.model}</td>
-              <td style="border:1px solid #000; padding:4px; font-weight:700; width:12%;">${group.prefix}</td>
-              <td colspan="6" style="border:1px solid #000; padding:4px; font-weight:700; text-align:center;">${group.componentType.toUpperCase()}</td>
-            </tr>
-            <tr>
-              <th style="border:1px solid #000; padding:4px; text-align:left; width:8%;">COR</th>
-              <th style="border:1px solid #000; padding:4px; text-align:left; width:18%;">Descrição</th>
-              <th style="border:1px solid #000; padding:4px; text-align:left; width:24%;">P/N</th>
-              <th style="border:1px solid #000; padding:4px; text-align:left; width:10%;">S/N</th>
-              <th style="border:1px solid #000; padding:4px; text-align:left; width:12%;">Medida</th>
-              <th style="border:1px solid #000; padding:4px; text-align:left; width:12%;">Status</th>
-              <th style="border:1px solid #000; padding:4px; text-align:left; width:12%;">Data Inspeção</th>
-              <th style="border:1px solid #000; padding:4px; text-align:left; width:16%;">Observação</th>
-            </tr>
+          <div style="margin-bottom: 40px; ${aircraftIdx > 0 ? 'page-break-before: always;' : ''}">
+            <div style="background: #f0f0f0; padding: 15px; margin-bottom: 20px; border-left: 5px solid #333;">
+              <h2 style="margin: 0; font-size: 20px; color: #000;">${aircraft.prefix} - ${aircraft.model}</h2>
+              <p style="margin: 5px 0 0 0; font-size: 14px; color: #666;">Total de componentes em alerta: ${aircraft.components.length}</p>
+            </div>
         `;
-
-        items.forEach(({ comp }) => {
-          const subRows = createSubRows(comp);
-          subRows.forEach((row) => {
+        
+        // Summary table for this aircraft
+        const summary = {};
+        aircraft.components.forEach(comp => {
+          const m1Percent = (comp.measure1_current / comp.measure1_max) * 100;
+          const m2Percent = (comp.measure2_current / comp.measure2_max) * 100;
+          
+          // Measure 1
+          if (m1Percent >= comp.measure1_alert) {
+            const m1Key = `${comp.measure1_name}|${comp.measure1_part_number}`;
+            if (!summary[m1Key]) {
+              summary[m1Key] = {
+                description: comp.measure1_name,
+                partNumber: comp.measure1_part_number,
+                count: 0
+              };
+            }
+            summary[m1Key].count++;
+          }
+          
+          // Measure 2
+          if (m2Percent >= comp.measure2_alert) {
+            const m2Key = `${comp.measure2_name}|${comp.measure2_part_number}`;
+            if (!summary[m2Key]) {
+              summary[m2Key] = {
+                description: comp.measure2_name,
+                partNumber: comp.measure2_part_number,
+                count: 0
+              };
+            }
+            summary[m2Key].count++;
+          }
+        });
+        
+        html += `
+          <div style="margin-bottom: 25px;">
+            <h3 style="font-size: 16px; color: #000; margin-bottom: 10px; border-bottom: 2px solid #ccc; padding-bottom: 5px;">Resumo Quantitativo</h3>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px;">
+              <thead>
+                <tr style="background: #333; color: white;">
+                  <th style="padding: 10px; text-align: left; border: 1px solid #ccc;">Descrição</th>
+                  <th style="padding: 10px; text-align: left; border: 1px solid #ccc;">Part Number</th>
+                  <th style="padding: 10px; text-align: center; border: 1px solid #ccc;">Quantidade</th>
+                </tr>
+              </thead>
+              <tbody>
+        `;
+        
+        Object.values(summary).forEach((item, idx) => {
+          html += `
+            <tr style="background: ${idx % 2 === 0 ? '#f9f9f9' : 'white'};">
+              <td style="padding: 8px; border: 1px solid #ccc;">${item.description}</td>
+              <td style="padding: 8px; border: 1px solid #ccc; font-family: monospace;">${item.partNumber}</td>
+              <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold;">${item.count}</td>
+            </tr>
+          `;
+        });
+        
+        html += `
+              </tbody>
+            </table>
+          </div>
+        `;
+        
+        // Detailed table for this aircraft
+        html += `
+          <div style="margin-bottom: 20px;">
+            <h3 style="font-size: 16px; color: #000; margin-bottom: 10px; border-bottom: 2px solid #ccc; padding-bottom: 5px;">Detalhamento dos Componentes</h3>
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+              <thead>
+                <tr style="background: #333; color: white;">
+                  <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">Componente</th>
+                  <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">Cor</th>
+                  <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">Descrição</th>
+                  <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">P/N</th>
+                  <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">S/N</th>
+                  <th style="padding: 8px; text-align: center; border: 1px solid #ccc;">Mediç  o</th>
+                  <th style="padding: 8px; text-align: center; border: 1px solid #ccc;">%</th>
+                  <th style="padding: 8px; text-align: center; border: 1px solid #ccc;">Data</th>
+                  <th style="padding: 8px; text-align: center; border: 1px solid #ccc;">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+        `;
+        
+        aircraft.components.forEach((comp, idx) => {
+          const m1Percent = (comp.measure1_current / comp.measure1_max) * 100;
+          const m2Percent = (comp.measure2_current / comp.measure2_max) * 100;
+          const inspectionDate = new Date(comp.last_inspection_date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+          
+          const colorMap = {
+            'Yellow': '🟡 Amarelo',
+            'Green': '🟢 Verde',
+            'Blue': '🔵 Azul',
+            'Red': '🔴 Vermelho',
+            'Black': '⚫ Preto',
+            'White': '⚪ Branco'
+          };
+          
+          // Row for measure 1
+          if (m1Percent >= comp.measure1_alert) {
+            const m1Status = m1Percent >= 100 ? 'CRÍTICO' : 'ATENÇÃO';
+            const m1Color = m1Percent >= 100 ? '#ef4444' : '#f59e0b';
+            
             html += `
-              <tr>
-                <td style="border:1px solid #000; padding:4px; vertical-align:top;">${row.color}</td>
-                <td style="border:1px solid #000; padding:4px; vertical-align:top;">${row.description}</td>
-                <td style="border:1px solid #000; padding:4px; vertical-align:top;">${row.pn}</td>
-                <td style="border:1px solid #000; padding:4px; vertical-align:top;">${row.sn}</td>
-                <td style="border:1px solid #000; padding:4px; vertical-align:top;">${row.measure}</td>
-                <td style="border:1px solid #000; padding:4px; vertical-align:top; color:${row.statusColor}; font-weight:700;">${row.status}</td>
-                <td style="border:1px solid #000; padding:4px; vertical-align:top;">${row.date}</td>
-                <td style="border:1px solid #000; padding:4px; vertical-align:top;">${row.notes}</td>
+              <tr style="background: ${idx % 2 === 0 ? '#f9f9f9' : 'white'};">
+                <td style="padding: 8px; border: 1px solid #ccc;">${comp.component_type}</td>
+                <td style="padding: 8px; border: 1px solid #ccc;">${colorMap[comp.component_color] || comp.component_color}</td>
+                <td style="padding: 8px; border: 1px solid #ccc;">${comp.measure1_name}</td>
+                <td style="padding: 8px; border: 1px solid #ccc; font-family: monospace; font-size: 10px;">${comp.measure1_part_number}</td>
+                <td style="padding: 8px; border: 1px solid #ccc; font-family: monospace; font-size: 10px;">${comp.measure1_serial_number || '-'}</td>
+                <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold;">${comp.measure1_current.toFixed(3)}"</td>
+                <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold; color: ${m1Color};">${m1Percent.toFixed(1)}%</td>
+                <td style="padding: 8px; border: 1px solid #ccc; text-align: center;">${inspectionDate}</td>
+                <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold; color: ${m1Color};">${m1Status}</td>
               </tr>
             `;
-          });
+          }
+          
+          // Row for measure 2
+          if (m2Percent >= comp.measure2_alert) {
+            const m2Status = m2Percent >= 100 ? 'CRÍTICO' : 'ATENÇÃO';
+            const m2Color = m2Percent >= 100 ? '#ef4444' : '#f59e0b';
+            
+            html += `
+              <tr style="background: ${idx % 2 === 0 ? '#f9f9f9' : 'white'};">
+                <td style="padding: 8px; border: 1px solid #ccc;">${comp.component_type}</td>
+                <td style="padding: 8px; border: 1px solid #ccc;">${colorMap[comp.component_color] || comp.component_color}</td>
+                <td style="padding: 8px; border: 1px solid #ccc;">${comp.measure2_name}</td>
+                <td style="padding: 8px; border: 1px solid #ccc; font-family: monospace; font-size: 10px;">${comp.measure2_part_number}</td>
+                <td style="padding: 8px; border: 1px solid #ccc; font-family: monospace; font-size: 10px;">${comp.measure2_serial_number || '-'}</td>
+                <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold;">${comp.measure2_current.toFixed(3)}"</td>
+                <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold; color: ${m2Color};">${m2Percent.toFixed(1)}%</td>
+                <td style="padding: 8px; border: 1px solid #ccc; text-align: center;">${inspectionDate}</td>
+                <td style="padding: 8px; border: 1px solid #ccc; text-align: center; font-weight: bold; color: ${m2Color};">${m2Status}</td>
+              </tr>
+            `;
+          }
         });
-
-        html += `</table>`;
+        
+        html += `
+              </tbody>
+            </table>
+          </div>
+        </div>
+        `;
       });
-
+      
+      html += `
+          <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #ccc; text-align: center; font-size: 11px; color: #666;">
+            <p>Relatório gerado automaticamente pelo Sistema de Controle de Folga ROD END</p>
+            <p>Usuário: ${currentUser.username} | Data/Hora: ${dateStr} ${timeStr}</p>
+          </div>
+        </div>
+      `;
+      
+      // Insert into print container and trigger print
       const printContainer = document.getElementById('print-container');
       printContainer.innerHTML = html;
       printContainer.classList.remove('hidden');
-
+      
       setTimeout(() => {
         window.print();
         printContainer.classList.add('hidden');
       }, 250);
     }
-
 
     // ========== EVENT LISTENERS ==========
 
@@ -2605,6 +2613,7 @@
 
         inspectionHistory.unshift({
           date: inspection_date_iso,
+          unit: selectedUnit,
           measure1: measure1_current,
           measure1_max: measure1_max,
           measure2: measure2_current,
@@ -2636,6 +2645,7 @@
             measure2_max: measure2_max,
             measure2_alert: existingRecord.measure2_alert,
             link_serial_number: existingRecord.link_serial_number,
+            measurement_unit: selectedUnit,
             last_inspection_date: inspection_date_iso,
             inspection_history: JSON.stringify(inspectionHistory),
             notes: existingRecord.notes || '',
@@ -2686,6 +2696,7 @@
             measure2_max: measure2_max,
             measure2_alert: parseInt(document.getElementById('measure2-alert').value || '80', 10),
             link_serial_number: componentConfig.singleSerial ? (document.getElementById('link-serial').value || '') : '',
+            measurement_unit: selectedUnit,
             last_inspection_date: inspection_date_iso,
             inspection_history: JSON.stringify(inspectionHistory),
             notes: document.getElementById('notes').value || '',
@@ -2766,7 +2777,7 @@
 
     // ========== INITIALIZATION ==========
     const defaultConfig = {
-      main_title: 'Controle de Medidas de ROD END',
+      main_title: 'Controle de Folga ROD END',
       subtitle: 'Sistema de Monitoramento de Helicópteros'
     };
 
