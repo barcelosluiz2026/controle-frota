@@ -1,9 +1,13 @@
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment
+import csv
+import io
 import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Response, send_file
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import Text
 
@@ -64,6 +68,62 @@ class Record(db.Model):
         return payload
 
 
+class AccessLog(db.Model):
+    __tablename__ = "access_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(120), nullable=False, index=True)
+    action = db.Column(db.String(50), nullable=False, index=True)
+    result = db.Column(db.String(30), nullable=False, index=True)
+    source = db.Column(db.String(50), nullable=False, default="panes")
+    ip_address = db.Column(db.String(120), nullable=True)
+    user_agent = db.Column(Text, nullable=True)
+    details = db.Column(Text, nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "username": self.username,
+            "action": self.action,
+            "result": self.result,
+            "source": self.source,
+            "ip_address": self.ip_address,
+            "user_agent": self.user_agent,
+            "details": self.details,
+            "created_at": self.created_at.astimezone(timezone.utc).isoformat() if self.created_at else None,
+        }
+
+
+class AuditLog(db.Model):
+    __tablename__ = "audit_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(120), nullable=False, index=True)
+    action = db.Column(db.String(50), nullable=False, index=True)
+    source = db.Column(db.String(50), nullable=False, default="panes", index=True)
+    target_type = db.Column(db.String(80), nullable=True, index=True)
+    target_id = db.Column(db.String(120), nullable=True, index=True)
+    details = db.Column(Text, nullable=True)
+    ip_address = db.Column(db.String(120), nullable=True)
+    user_agent = db.Column(Text, nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "username": self.username,
+            "action": self.action,
+            "source": self.source,
+            "target_type": self.target_type,
+            "target_id": self.target_id,
+            "details": self.details,
+            "ip_address": self.ip_address,
+            "user_agent": self.user_agent,
+            "created_at": self.created_at.astimezone(timezone.utc).isoformat() if self.created_at else None,
+        }
+
+
 with app.app_context():
     db.create_all()
 
@@ -109,6 +169,22 @@ def montar_ranking_panes(tipo: str | None = None, limit: int = 10):
     aeronaves = {}
     panes = []
 
+    status_label_map = {
+        "lancada": "Monitoradas",
+        "em_progresso": "Em Progresso",
+        "aguardando_material": "Aguardando Material",
+        "aguardando_ferramenta": "Aguardando Ferramenta",
+        "aguardando_transferencia": "Aguardando Transferência",
+    }
+
+    status_order_map = {
+        "lancada": 1,
+        "em_progresso": 2,
+        "aguardando_material": 3,
+        "aguardando_ferramenta": 4,
+        "aguardando_transferencia": 5,
+    }
+
     for record in records:
         try:
             payload = record.to_dict()
@@ -125,7 +201,7 @@ def montar_ranking_panes(tipo: str | None = None, limit: int = 10):
             continue
 
         pane_tipo = normalize_tipo(payload.get("paneTipo"))
-        pane_status = str(payload.get("paneStatus", "")).strip()
+        pane_status = str(payload.get("paneStatus", "")).strip().lower()
 
         if tipo and pane_tipo != normalize_tipo(tipo):
             continue
@@ -139,8 +215,22 @@ def montar_ranking_panes(tipo: str | None = None, limit: int = 10):
 
         agora = datetime.now(timezone.utc)
         delta = agora - criado_em
-        horas = round(delta.total_seconds() / 3600, 1)
-        dias = round(delta.total_seconds() / 86400, 1)
+        total_seconds = max(0, delta.total_seconds())
+        horas = round(total_seconds / 3600, 1)
+        dias = max(1, int(total_seconds // 86400))
+
+        if dias <= 7:
+            sla_status = "dentro_sla"
+            sla_label = "Dentro do SLA"
+            antiguidade_faixa = "normal"
+        elif dias <= 14:
+            sla_status = "atencao"
+            sla_label = "Atenção SLA"
+            antiguidade_faixa = "atencao"
+        else:
+            sla_status = "vencido"
+            sla_label = "SLA Vencido"
+            antiguidade_faixa = "critico"
 
         aeronave_id = str(payload.get("aeronaveId", "")).strip()
         aeronave = aeronaves.get(aeronave_id, {})
@@ -155,21 +245,30 @@ def montar_ranking_panes(tipo: str | None = None, limit: int = 10):
                 "ata": payload.get("paneAta"),
                 "tipo": pane_tipo,
                 "status": pane_status,
+                "statusLabel": status_label_map.get(pane_status, pane_status or "Sem status"),
+                "statusOrder": status_order_map.get(pane_status, 999),
                 "criadoEm": criado_em.isoformat(),
                 "horasEmAberto": horas,
                 "diasEmAberto": dias,
+                "diasTexto": f"{dias} dia{'s' if dias != 1 else ''} pendente",
+                "slaStatus": sla_status,
+                "slaLabel": sla_label,
+                "antiguidadeFaixa": antiguidade_faixa,
                 "criadoPor": payload.get("criadoPor"),
             }
         )
 
     panes.sort(
         key=lambda item: (
-            -item["horasEmAberto"],
+            -int(item.get("diasEmAberto") or 0),
+            -float(item.get("horasEmAberto") or 0),
+            int(item.get("statusOrder") or 999),
             str(item.get("prefixo") or ""),
             str(item.get("descricao") or ""),
         )
     )
     return panes[:limit]
+
 
 
 
@@ -189,10 +288,399 @@ def options_handler(_):
     return ("", 204)
 
 
+def get_client_ip() -> str | None:
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip() or None
+    real_ip = request.headers.get("X-Real-IP", "").strip()
+    if real_ip:
+        return real_ip
+    return request.remote_addr
+
+
+def create_access_log(username: str, action: str, result: str, source: str = "panes", details: str | None = None):
+    log = AccessLog(
+        username=str(username or "desconhecido")[:120],
+        action=str(action or "unknown")[:50],
+        result=str(result or "unknown")[:30],
+        source=str(source or "panes")[:50],
+        ip_address=(get_client_ip() or "")[:120] or None,
+        user_agent=(request.headers.get("User-Agent", "") or "")[:2000] or None,
+        details=(str(details)[:4000] if details else None),
+    )
+    db.session.add(log)
+    db.session.commit()
+    return log
+
+
+
+
+def apply_access_log_filters(query):
+    username = str(request.args.get("username", "")).strip()
+    action = str(request.args.get("action", "")).strip()
+    result = str(request.args.get("result", "")).strip()
+    text = str(request.args.get("q", "")).strip()
+    date_from = parse_iso_datetime(request.args.get("date_from"))
+    date_to = parse_iso_datetime(request.args.get("date_to"))
+
+    if username:
+        query = query.filter(AccessLog.username.ilike(f"%{username}%"))
+    if action:
+        query = query.filter(AccessLog.action == action)
+    if result:
+        query = query.filter(AccessLog.result == result)
+    if date_from:
+        query = query.filter(AccessLog.created_at >= date_from)
+    if date_to:
+        query = query.filter(AccessLog.created_at <= date_to)
+
+    if text:
+        from sqlalchemy import or_
+        query = query.filter(
+            or_(
+                AccessLog.username.ilike(f"%{text}%"),
+                AccessLog.details.ilike(f"%{text}%"),
+                AccessLog.ip_address.ilike(f"%{text}%"),
+            )
+        )
+
+    return query
+
+
+def build_csv_response(rows, filename: str):
+    output = io.StringIO()
+    if rows:
+        fieldnames = list(rows[0].keys())
+    else:
+        fieldnames = ["message"]
+        rows = [{"message": "Sem registros"}]
+
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+
+def infer_actor_username(payload: dict | None = None) -> str:
+    header_username = str(request.headers.get("X-Actor-Username", "")).strip()
+    if header_username:
+        return header_username[:120]
+
+    if isinstance(payload, dict):
+        for key in ("modified_by", "created_by", "criadoPor", "updatedBy", "createdBy", "username", "responsavel", "login_usuario"):
+            value = str(payload.get(key, "")).strip()
+            if value:
+                return value[:120]
+
+    return "desconhecido"
+
+
+def create_audit_log(username: str, action: str, source: str = "panes", target_type: str | None = None, target_id: str | None = None, details: str | None = None):
+    log = AuditLog(
+        username=str(username or "desconhecido")[:120],
+        action=str(action or "unknown")[:50],
+        source=str(source or "panes")[:50],
+        target_type=(str(target_type)[:80] if target_type else None),
+        target_id=(str(target_id)[:120] if target_id else None),
+        details=(str(details)[:4000] if details else None),
+        ip_address=(get_client_ip() or "")[:120] or None,
+        user_agent=(request.headers.get("User-Agent", "") or "")[:2000] or None,
+    )
+    db.session.add(log)
+    db.session.commit()
+    return log
+
+
+def apply_audit_log_filters(query):
+    username = str(request.args.get("username", "")).strip()
+    action = str(request.args.get("action", "")).strip()
+    source = str(request.args.get("source", "")).strip()
+    text = str(request.args.get("q", "")).strip()
+    date_from = parse_iso_datetime(request.args.get("date_from"))
+    date_to = parse_iso_datetime(request.args.get("date_to"))
+
+    if username:
+        query = query.filter(AuditLog.username.ilike(f"%{username}%"))
+    if action:
+        query = query.filter(AuditLog.action == action)
+    if source:
+        query = query.filter(AuditLog.source == source)
+    if date_from:
+        query = query.filter(AuditLog.created_at >= date_from)
+    if date_to:
+        query = query.filter(AuditLog.created_at <= date_to)
+
+    if text:
+        from sqlalchemy import or_
+        query = query.filter(
+            or_(
+                AuditLog.username.ilike(f"%{text}%"),
+                AuditLog.details.ilike(f"%{text}%"),
+                AuditLog.target_id.ilike(f"%{text}%"),
+                AuditLog.target_type.ilike(f"%{text}%"),
+                AuditLog.ip_address.ilike(f"%{text}%"),
+            )
+        )
+    return query
+
+
+def friendly_audit_row(row: dict) -> dict:
+    action_map = {
+        "create": "Criou registro",
+        "update": "Atualizou registro",
+        "delete": "Excluiu registro",
+    }
+    source_map = {
+        "panes": "Controle Técnico da Frota",
+        "rodend": "Controle Rod End",
+    }
+    type_map = {
+        "aeronave": "Aeronave",
+        "pane": "Discrepância",
+        "etapa": "Etapa",
+        "pendencia": "Pendência",
+        "usuario": "Usuário",
+        "rodend_user": "Usuário Rod End",
+        "rodend_aircraft": "Aeronave Rod End",
+        "rodend_component": "Componente Rod End",
+    }
+
+    raw_created_at = row.get("created_at") or ""
+    try:
+        created_label = datetime.fromisoformat(str(raw_created_at).replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        created_label = str(raw_created_at or "")
+
+    return {
+        "Data/Hora": created_label,
+        "Usuário": row.get("username", ""),
+        "Ação": action_map.get(str(row.get("action", "")).strip(), str(row.get("action", "")).strip()),
+        "Módulo": source_map.get(str(row.get("source", "")).strip(), str(row.get("source", "")).strip()),
+        "Tipo de registro": type_map.get(str(row.get("target_type", "")).strip(), str(row.get("target_type", "")).strip()),
+        "ID do registro": row.get("target_id", ""),
+        "Detalhes": row.get("details", ""),
+        "IP": row.get("ip_address", ""),
+    }
+
+def build_excel_response(rows, filename: str, sheet_name: str = "Auditoria"):
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = sheet_name
+
+    if rows:
+        headers = list(rows[0].keys())
+    else:
+        headers = ["message"]
+        rows = [{"message": "Sem registros"}]
+
+    header_fill = PatternFill(fill_type="solid", fgColor="1F4E78")
+    header_font = Font(color="FFFFFF", bold=True)
+    center = Alignment(vertical="center")
+
+    for col_idx, header in enumerate(headers, start=1):
+        cell = sheet.cell(row=1, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = center
+
+    for row_idx, row in enumerate(rows, start=2):
+        for col_idx, header in enumerate(headers, start=1):
+            value = row.get(header, "")
+            cell = sheet.cell(row=row_idx, column=col_idx, value=value)
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+
+    for column_cells in sheet.columns:
+        length = 0
+        column = column_cells[0].column_letter
+        for cell in column_cells:
+            try:
+                length = max(length, len(str(cell.value or "")))
+            except Exception:
+                pass
+        sheet.column_dimensions[column].width = min(max(length + 2, 12), 40)
+
+    stream = io.BytesIO()
+    workbook.save(stream)
+    stream.seek(0)
+    return send_file(
+        stream,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
 @app.get("/health")
 def health():
     return jsonify({"ok": True, "service": "controle-panes-api"})
 
+
+@app.post("/api/access-log")
+def create_access_log_endpoint():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "JSON inválido"}), 400
+
+    username = str(payload.get("username", "")).strip() or "desconhecido"
+    action = str(payload.get("action", "")).strip() or "unknown"
+    result = str(payload.get("result", "")).strip() or "unknown"
+    source = str(payload.get("source", "panes")).strip() or "panes"
+    details = str(payload.get("details", "")).strip() or None
+
+    log = create_access_log(username=username, action=action, result=result, source=source, details=details)
+    return jsonify({"ok": True, "item": log.to_dict()}), 201
+
+
+@app.get("/api/access-log")
+def list_access_logs():
+    limit = request.args.get("limit", default=200, type=int)
+    if limit is None or limit < 1:
+        limit = 200
+    if limit > 1000:
+        limit = 1000
+
+    query = AccessLog.query.order_by(AccessLog.created_at.desc(), AccessLog.id.desc())
+    query = apply_access_log_filters(query)
+    logs = query.limit(limit).all()
+    return jsonify([log.to_dict() for log in logs])
+
+
+@app.get("/api/access-log/export")
+def export_access_logs():
+    query = AccessLog.query.order_by(AccessLog.created_at.desc(), AccessLog.id.desc())
+    query = apply_access_log_filters(query)
+    logs = query.limit(5000).all()
+    return build_csv_response([log.to_dict() for log in logs], "auditoria_acesso.csv")
+
+
+
+
+@app.get("/api/access-log/summary")
+def access_log_summary():
+    query = AccessLog.query
+    query = apply_access_log_filters(query)
+    logs = query.order_by(AccessLog.created_at.desc(), AccessLog.id.desc()).limit(5000).all()
+
+    today = datetime.now(timezone.utc).date()
+    login_today = 0
+    fail_today = 0
+    user_counts = {}
+    latest_by_user = {}
+    ip_counts = {}
+    fail_by_user = {}
+    fail_by_ip = {}
+    last_success_by_user = {}
+
+    for log in logs:
+        created_at = log.created_at.astimezone(timezone.utc) if log.created_at else None
+        if created_at and created_at.date() == today:
+            if log.action == "login" and log.result == "success":
+                login_today += 1
+            if log.result == "fail":
+                fail_today += 1
+
+        username = str(log.username or "desconhecido").strip() or "desconhecido"
+        user_counts[username] = user_counts.get(username, 0) + 1
+
+        if username not in latest_by_user:
+            latest_by_user[username] = {
+                "username": username,
+                "action": log.action,
+                "result": log.result,
+                "created_at": created_at.isoformat() if created_at else None,
+                "ip_address": log.ip_address,
+            }
+
+        if log.result == "success" and username not in last_success_by_user:
+            last_success_by_user[username] = {
+                "username": username,
+                "created_at": created_at.isoformat() if created_at else None,
+                "ip_address": log.ip_address,
+            }
+
+        ip = str(log.ip_address or "").strip()
+        if ip:
+            ip_counts[ip] = ip_counts.get(ip, 0) + 1
+
+        if log.result == "fail":
+            fail_by_user[username] = fail_by_user.get(username, 0) + 1
+            if ip:
+                fail_by_ip[ip] = fail_by_ip.get(ip, 0) + 1
+
+    top_users = [
+        {"username": username, "count": count}
+        for username, count in sorted(user_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
+    ]
+
+    latest_accesses = list(latest_by_user.values())[:8]
+
+    top_ips = [
+        {"ip_address": ip, "count": count}
+        for ip, count in sorted(ip_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
+    ]
+
+    top_fail_users = [
+        {"username": username, "count": count}
+        for username, count in sorted(fail_by_user.items(), key=lambda item: (-item[1], item[0]))[:5]
+    ]
+
+    top_fail_ips = [
+        {"ip_address": ip, "count": count}
+        for ip, count in sorted(fail_by_ip.items(), key=lambda item: (-item[1], item[0]))[:8]
+    ]
+
+    suspicious_ips = []
+    for ip, count in sorted(fail_by_ip.items(), key=lambda item: (-item[1], item[0])):
+        severity = "high" if count >= 10 else ("medium" if count >= 5 else "low")
+        if severity in {"high", "medium"}:
+            suspicious_ips.append({
+                "ip_address": ip,
+                "fail_count": count,
+                "severity": severity,
+            })
+
+    last_success_list = list(last_success_by_user.values())[:8]
+
+    return jsonify({
+        "login_today": login_today,
+        "fail_today": fail_today,
+        "top_users": top_users,
+        "latest_accesses": latest_accesses,
+        "top_ips": top_ips,
+        "top_fail_users": top_fail_users,
+        "top_fail_ips": top_fail_ips,
+        "last_success_by_user": last_success_list,
+        "suspicious_ips": suspicious_ips,
+        "total_considered": len(logs),
+    })
+
+
+
+@app.get("/api/audit-log")
+def list_audit_logs():
+    limit = request.args.get("limit", default=300, type=int)
+    if limit is None or limit < 1:
+        limit = 300
+    if limit > 2000:
+        limit = 2000
+
+    query = AuditLog.query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+    query = apply_audit_log_filters(query)
+    logs = query.limit(limit).all()
+    return jsonify([log.to_dict() for log in logs])
+
+
+@app.get("/api/audit-log/export")
+def export_audit_logs():
+    query = AuditLog.query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+    query = apply_audit_log_filters(query)
+    logs = query.limit(5000).all()
+    return build_excel_response([friendly_audit_row(log.to_dict()) for log in logs], "auditoria_acoes_formatada.xlsx", "Auditoria de Ações")
 
 @app.get("/api/records")
 def list_records():
@@ -221,6 +709,17 @@ def create_record():
     )
     db.session.add(record)
     db.session.commit()
+
+    actor = infer_actor_username(payload)
+    record_type = str(payload.get("type", "")).strip() or "registro"
+    create_audit_log(
+        username=actor,
+        action="create",
+        source="panes",
+        target_type=record_type,
+        target_id=record_id,
+        details=f"Criação de registro tipo={record_type} id={record_id}",
+    )
     return jsonify({"isOk": True, "item": record.to_dict()}), 201
 
 
@@ -239,6 +738,17 @@ def update_record(record_id: str):
     record.data = json.dumps(payload, ensure_ascii=False)
     record.updated_at = datetime.now(timezone.utc)
     db.session.commit()
+
+    actor = infer_actor_username(payload)
+    record_type = str(payload.get("type", "")).strip() or "registro"
+    create_audit_log(
+        username=actor,
+        action="update",
+        source="panes",
+        target_type=record_type,
+        target_id=record_id,
+        details=f"Atualização de registro tipo={record_type} id={record_id}",
+    )
     return jsonify({"isOk": True, "item": record.to_dict()})
 
 
@@ -248,8 +758,24 @@ def delete_record(record_id: str):
     if record is None:
         return jsonify({"error": "Registro não encontrado"}), 404
 
+    payload = None
+    try:
+        payload = record.to_dict()
+    except Exception:
+        payload = {}
+
+    actor = infer_actor_username(payload)
+    target_type = str(payload.get("type") or record.record_type or "registro").strip() or "registro"
     db.session.delete(record)
     db.session.commit()
+    create_audit_log(
+        username=actor,
+        action="delete",
+        source="panes",
+        target_type=target_type,
+        target_id=record_id,
+        details=f"Exclusão de registro tipo={target_type} id={record_id}",
+    )
     return jsonify({"isOk": True, "deletedId": record_id})
 
 
@@ -461,6 +987,15 @@ def rodend_create_record():
     db.session.add(record)
     db.session.commit()
 
+    actor = infer_actor_username(payload)
+    create_audit_log(
+        username=actor,
+        action="create",
+        source="rodend",
+        target_type=payload.get("type"),
+        target_id=payload.get("id"),
+        details=f"Criação de registro ROD END tipo={payload.get('type')} id={payload.get('id')}",
+    )
     return jsonify({"isOk": True, "item": record.to_dict()}), 201
 
 
@@ -485,6 +1020,15 @@ def rodend_update_record(record_id: str):
     record.updated_at = datetime.now(timezone.utc)
     db.session.commit()
 
+    actor = infer_actor_username(payload)
+    create_audit_log(
+        username=actor,
+        action="update",
+        source="rodend",
+        target_type=payload.get("type"),
+        target_id=payload.get("id"),
+        details=f"Atualização de registro ROD END tipo={payload.get('type')} id={payload.get('id')}",
+    )
     return jsonify({"isOk": True, "item": record.to_dict()})
 
 
@@ -498,8 +1042,24 @@ def rodend_delete_record(record_id: str):
     if not is_rodend_type(current_type):
         return jsonify({"error": "Registro não pertence ao módulo ROD END"}), 400
 
+    payload = None
+    try:
+        payload = record.to_dict()
+    except Exception:
+        payload = {}
+
+    actor = infer_actor_username(payload)
+    target_type = str(payload.get("type") or record.record_type or "rodend_registro").strip() or "rodend_registro"
     db.session.delete(record)
     db.session.commit()
+    create_audit_log(
+        username=actor,
+        action="delete",
+        source="rodend",
+        target_type=target_type,
+        target_id=record_id,
+        details=f"Exclusão de registro ROD END tipo={target_type} id={record_id}",
+    )
     return jsonify({"isOk": True, "deletedId": record_id})
 
 @app.get("/<path:filename>")
