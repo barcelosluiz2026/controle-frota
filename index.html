@@ -18,6 +18,7 @@
         const response = await fetch(`${RENDER_API_BASE}${path}`, {
           headers: {
             'Content-Type': 'application/json',
+            ...((window.currentUser?.username || currentUser?.username) ? { 'X-Actor-Username': (window.currentUser?.username || currentUser?.username) } : {}),
             ...(options.headers || {})
           },
           ...options
@@ -245,6 +246,44 @@
       'Outro': 'https://imgur.com/eSRiGVh.jpg'
     };
 
+    function isAeronaveArquivada(aeronave) {
+      return !!(aeronave && aeronave.type === 'aeronave' && aeronave.arquivada === true);
+    }
+
+    function getAeronavesAtivas() {
+      return currentData.filter(d => d.type === 'aeronave' && !isAeronaveArquivada(d));
+    }
+
+    function getAeronavesArquivadas() {
+      return currentData.filter(d => d.type === 'aeronave' && isAeronaveArquivada(d));
+    }
+
+    function getAeronaveById(aeronaveId) {
+      return currentData.find(d => d.type === 'aeronave' && d.id === aeronaveId) || null;
+    }
+
+    function formatarDataHoraArquivo(value) {
+      if (!value) return '-';
+      const data = new Date(value);
+      if (isNaN(data.getTime())) return '-';
+      return data.toLocaleString('pt-BR');
+    }
+
+    function getResumoHistoricoAeronave(aeronaveId) {
+      const panes = currentData.filter(d => d.type === 'pane' && d.aeronaveId === aeronaveId);
+      const paneIds = new Set(panes.map(p => p.id));
+      const etapas = currentData.filter(d => d.type === 'etapa' && paneIds.has(d.paneId));
+      const pendencias = currentData.filter(d => d.type === 'pendencia' && paneIds.has(d.paneId));
+      return {
+        panes,
+        etapas,
+        pendencias,
+        totalPanes: panes.length,
+        totalEtapas: etapas.length,
+        totalPendencias: pendencias.length,
+      };
+    }
+
     function showToast(message, type = 'success') {
       const config = window.elementSdk?.config || defaultConfig;
       const fontSize = config.font_size || defaultConfig.font_size;
@@ -365,7 +404,7 @@
     }
 
     function renderHome(bgColor, surfaceColor, textColor, primaryColor, secondaryColor, fontFamily, fontSize, titulo, subtitulo) {
-      const aeronaves = currentData.filter(d => d.type === 'aeronave');
+      const aeronaves = getAeronavesAtivas();
       const imagemFundo = 'https://imgur.com/eSRiGVh.jpg';
       
       return `
@@ -399,6 +438,12 @@
                 ${currentUser && currentUser.role === 'admin' ? `
                   <button id="gerenciarUsuariosBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
                     👥 Gerenciar Usuários
+                  </button>
+                  <button id="auditoriaAcessoBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
+                    🛡️ Auditoria de Acesso
+                  </button>
+                  <button id="auditoriaAcoesBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
+                    🧾 Auditoria de Ações
                   </button>
                 ` : ''}
                 <button id="dashboardBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
@@ -624,6 +669,86 @@
                   </form>
                 </div>
               </div>
+
+              <div id="auditoriaAcessoModal" class="hidden fixed inset-0 items-center justify-center p-4" style="background-color: rgba(0,0,0,0.7); z-index: 1150;">
+                <div class="w-full max-w-4xl rounded-lg p-6" style="background-color: ${surfaceColor}; max-height: 90vh; overflow-y: auto;">
+                  <div class="flex justify-between items-center mb-4 gap-3">
+                    <h2 class="font-bold" style="font-size: ${fontSize * 1.5}px;">🛡️ Auditoria de Acesso</h2>
+                    <div class="flex gap-2 flex-wrap">
+                      <button id="exportAuditoriaBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
+                        Exportar CSV
+                      </button>
+                      <button id="refreshAuditoriaBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
+                        Atualizar
+                      </button>
+                      <button id="closeAuditoriaBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
+                        Fechar
+                      </button>
+                    </div>
+                  </div>
+                  <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 12px;">
+                    Registros de login, falha de login e logout do sistema. Visível apenas para administradores.
+                  </p>
+                  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+                    <input id="accessUsernameFilter" type="text" placeholder="Usuário" class="w-full px-3 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize * 0.9}px;">
+                    <select id="accessActionFilter" class="w-full px-3 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize * 0.9}px;">
+                      <option value="">Todas ações</option>
+                      <option value="login">login</option>
+                      <option value="logout">logout</option>
+                    </select>
+                    <select id="accessResultFilter" class="w-full px-3 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize * 0.9}px;">
+                      <option value="">Todos resultados</option>
+                      <option value="success">Sucesso</option>
+                      <option value="fail">Falha</option>
+                    </select>
+                    <input id="accessDateFromFilter" type="date" class="w-full px-3 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize * 0.9}px;">
+                    <input id="accessDateToFilter" type="date" class="w-full px-3 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize * 0.9}px;">
+                    <input id="accessSearchFilter" type="text" placeholder="Buscar em detalhes/IP" class="w-full px-3 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize * 0.9}px;">
+                  </div>
+                  <div id="accessSummaryPanel"></div>
+                  <div id="accessLogsList"></div>
+                </div>
+              </div>
+
+              <div id="auditoriaAcoesModal" class="hidden fixed inset-0 items-center justify-center p-4" style="background-color: rgba(0,0,0,0.7); z-index: 1160;">
+                <div class="w-full max-w-5xl rounded-lg p-6" style="background-color: ${surfaceColor}; max-height: 90vh; overflow-y: auto;">
+                  <div class="flex justify-between items-center mb-4 gap-3">
+                    <h2 class="font-bold" style="font-size: ${fontSize * 1.5}px;">🧾 Auditoria de Ações</h2>
+                    <div class="flex gap-2 flex-wrap">
+                      <button id="exportAuditoriaAcoesBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
+                        Exportar Excel
+                      </button>
+                      <button id="refreshAuditoriaAcoesBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
+                        Atualizar
+                      </button>
+                      <button id="closeAuditoriaAcoesBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
+                        Fechar
+                      </button>
+                    </div>
+                  </div>
+                  <p style="font-size: ${fontSize * 0.85}px; opacity: 0.7; margin-bottom: 12px;">
+                    Registros de criação, edição e exclusão de dados. Visível apenas para administradores.
+                  </p>
+                  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+                    <input id="actionUsernameFilter" type="text" placeholder="Usuário" class="w-full px-3 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize * 0.9}px;">
+                    <select id="actionActionFilter" class="w-full px-3 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize * 0.9}px;">
+                      <option value="">Todas ações</option>
+                      <option value="create">create</option>
+                      <option value="update">update</option>
+                      <option value="delete">delete</option>
+                    </select>
+                    <select id="actionSourceFilter" class="w-full px-3 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize * 0.9}px;">
+                      <option value="">Todas origens</option>
+                      <option value="panes">panes</option>
+                      <option value="rodend">rodend</option>
+                    </select>
+                    <input id="actionDateFromFilter" type="date" class="w-full px-3 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize * 0.9}px;">
+                    <input id="actionDateToFilter" type="date" class="w-full px-3 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize * 0.9}px;">
+                    <input id="actionSearchFilter" type="text" placeholder="Buscar em detalhes/ID/tipo" class="w-full px-3 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize * 0.9}px;">
+                  </div>
+                  <div id="actionLogsList"></div>
+                </div>
+              </div>
             ` : ''}
 
             ${currentUser && currentUser.role !== 'mecanico' ? `
@@ -702,7 +827,7 @@
 
     function renderDashboard(bgColor, surfaceColor, textColor, primaryColor, secondaryColor, fontFamily, fontSize, titulo, subtitulo) {
       const imagemFundo = 'https://imgur.com/eSRiGVh.jpg';
-      const aeronaves = currentData.filter(d => d.type === 'aeronave');
+      const aeronaves = getAeronavesAtivas();
       const panes = currentData.filter(d => d.type === 'pane');
       const pendencias = currentData.filter(d => d.type === 'pendencia');
       const etapas = currentData.filter(d => d.type === 'etapa');
@@ -1180,7 +1305,7 @@
     function renderPaneDetail(bgColor, surfaceColor, textColor, primaryColor, secondaryColor, fontFamily, fontSize) {
       if (!selectedPane) return '';
 
-      const aeronave = currentData.find(d => d.type === 'aeronave' && d.id === selectedPane.aeronaveId);
+      const aeronave = getAeronaveById(selectedPane.aeronaveId);
       const imagemFundo = aeronave ? (IMAGENS_FUNDO[aeronave.modelo] || IMAGENS_FUNDO['Outro']) : IMAGENS_FUNDO['Outro'];
 
       const etapas = currentData.filter(d => d.type === 'etapa' && d.paneId === selectedPane.id)
@@ -1230,12 +1355,15 @@
             ` : ''}
 
             ${currentUser && currentUser.role !== 'mecanico' && selectedPane.paneStatus !== 'finalizada' ? `
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <button id="addEtapaBtn" class="px-6 py-3 rounded-lg font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
                   + Adicionar Etapa
                 </button>
                 <button id="addPendenciaBtn" class="px-6 py-3 rounded-lg font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize}px;">
                   + Adicionar Pendência
+                </button>
+                <button id="deletePaneBtn" class="px-6 py-3 rounded-lg font-semibold" style="background-color: #ef4444; color: white; font-size: ${fontSize}px;">
+                  🗑️ Excluir Discrepância
                 </button>
               </div>
               ${(selectedPane.paneStatus === 'lancada' || selectedPane.paneStatus === 'em_progresso') ? `
@@ -1604,6 +1732,385 @@
       `;
     }
 
+
+    async function logAccessEvent({ username = 'desconhecido', action = 'unknown', result = 'success', details = '' } = {}) {
+      try {
+        await fetch(`${RENDER_API_BASE}/access-log`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username,
+            action,
+            result,
+            source: 'panes',
+            details
+          })
+        });
+      } catch (error) {
+        console.error('Erro ao registrar log de acesso:', error);
+      }
+    }
+
+    function formatAccessLogDate(value) {
+      if (!value) return '-';
+      const date = new Date(value);
+      if (isNaN(date.getTime())) return '-';
+      return date.toLocaleString('pt-BR');
+    }
+
+    function renderAccessLogsList(logs, fontSize, bgColor, textColor, secondaryColor) {
+      if (!Array.isArray(logs) || logs.length === 0) {
+        return `
+          <div class="text-center py-10 rounded" style="background-color: ${bgColor};">
+            <p style="font-size: ${fontSize}px; opacity: 0.7;">Nenhum registro encontrado.</p>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+          ${logs.map(log => {
+            const resultColor = log.result === 'success' ? '#22c55e' : (log.result === 'fail' ? '#ef4444' : '#f59e0b');
+            const actionLabel = log.action === 'login'
+              ? 'Login'
+              : (log.action === 'logout' ? 'Logout' : log.action);
+
+            return `
+              <div class="rounded-lg p-4" style="background-color: ${bgColor}; border: 1px solid ${secondaryColor};">
+                <div class="flex justify-between items-start gap-4 flex-wrap">
+                  <div>
+                    <p class="font-bold" style="font-size: ${fontSize}px; color: ${textColor};">${log.username || 'desconhecido'}</p>
+                    <p style="font-size: ${fontSize * 0.85}px; opacity: 0.75;">${actionLabel} • ${formatAccessLogDate(log.created_at)}</p>
+                    <p style="font-size: ${fontSize * 0.82}px; opacity: 0.75; margin-top: 4px;">IP: ${log.ip_address || '-'}</p>
+                    ${log.details ? `<p style="font-size: ${fontSize * 0.82}px; opacity: 0.8; margin-top: 6px;">${log.details}</p>` : ''}
+                  </div>
+                  <div class="px-3 py-1 rounded-full font-semibold" style="background-color: ${resultColor}; color: white; font-size: ${fontSize * 0.8}px;">
+                    ${log.result === 'success' ? 'Sucesso' : (log.result === 'fail' ? 'Falha' : log.result)}
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+
+    function renderAccessSummaryCards(summary, fontSize, bgColor, secondaryColor) {
+      const topUsers = Array.isArray(summary?.top_users) ? summary.top_users : [];
+      const latestAccesses = Array.isArray(summary?.latest_accesses) ? summary.latest_accesses : [];
+      const topIps = Array.isArray(summary?.top_ips) ? summary.top_ips : [];
+      const topFailUsers = Array.isArray(summary?.top_fail_users) ? summary.top_fail_users : [];
+      const topFailIps = Array.isArray(summary?.top_fail_ips) ? summary.top_fail_ips : [];
+      const suspiciousIps = Array.isArray(summary?.suspicious_ips) ? summary.suspicious_ips : [];
+      const lastSuccessByUser = Array.isArray(summary?.last_success_by_user) ? summary.last_success_by_user : [];
+
+      const suspiciousBlock = suspiciousIps.length
+        ? suspiciousIps.map((item) => {
+            const bg = item.severity === 'high' ? '#7f1d1d' : '#92400e';
+            const label = item.severity === 'high' ? 'ALTO RISCO' : 'ATENÇÃO';
+            return `
+              <div class="flex justify-between items-center py-2 px-3 rounded" style="background-color: ${bg}; color: white; font-size: ${fontSize * 0.82}px;">
+                <div>
+                  <strong>${item.ip_address}</strong>
+                  <div style="opacity: 0.9;">${item.fail_count} falha(s)</div>
+                </div>
+                <div style="font-weight: 800;">${label}</div>
+              </div>
+            `;
+          }).join('')
+        : `<p style="font-size: ${fontSize * 0.82}px; opacity: 0.7;">Nenhum IP suspeito pelos critérios atuais.</p>`;
+
+      return `
+        <div class="space-y-4 mb-4">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="rounded-lg p-4" style="background-color: ${bgColor}; border: 1px solid ${secondaryColor};">
+              <p style="font-size: ${fontSize * 0.82}px; opacity: 0.75;">Logins com sucesso hoje</p>
+              <p class="font-bold" style="font-size: ${fontSize * 1.5}px; margin-top: 4px;">${summary?.login_today ?? 0}</p>
+            </div>
+            <div class="rounded-lg p-4" style="background-color: ${bgColor}; border: 1px solid ${secondaryColor};">
+              <p style="font-size: ${fontSize * 0.82}px; opacity: 0.75;">Falhas hoje</p>
+              <p class="font-bold" style="font-size: ${fontSize * 1.5}px; margin-top: 4px;">${summary?.fail_today ?? 0}</p>
+            </div>
+            <div class="rounded-lg p-4" style="background-color: ${bgColor}; border: 1px solid ${secondaryColor};">
+              <p style="font-size: ${fontSize * 0.82}px; opacity: 0.75;">Registros considerados</p>
+              <p class="font-bold" style="font-size: ${fontSize * 1.5}px; margin-top: 4px;">${summary?.total_considered ?? 0}</p>
+            </div>
+          </div>
+
+          <div class="rounded-lg p-4" style="background-color: ${bgColor}; border: 1px solid ${secondaryColor};">
+            <p class="font-semibold mb-2" style="font-size: ${fontSize * 0.95}px;">IPs suspeitos</p>
+            <div class="space-y-2">${suspiciousBlock}</div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div class="rounded-lg p-4" style="background-color: ${bgColor}; border: 1px solid ${secondaryColor};">
+              <p class="font-semibold mb-2" style="font-size: ${fontSize * 0.92}px;">Usuários que mais acessaram</p>
+              ${topUsers.length ? topUsers.map((item, index) => `
+                <div class="flex justify-between items-center py-1" style="font-size: ${fontSize * 0.82}px;">
+                  <span>${index + 1}. ${item.username}</span>
+                  <strong>${item.count}</strong>
+                </div>
+              `).join('') : `<p style="font-size: ${fontSize * 0.82}px; opacity: 0.7;">Sem dados</p>`}
+            </div>
+
+            <div class="rounded-lg p-4" style="background-color: ${bgColor}; border: 1px solid ${secondaryColor};">
+              <p class="font-semibold mb-2" style="font-size: ${fontSize * 0.92}px;">Falhas por usuário</p>
+              ${topFailUsers.length ? topFailUsers.map((item, index) => `
+                <div class="flex justify-between items-center py-1" style="font-size: ${fontSize * 0.82}px;">
+                  <span>${index + 1}. ${item.username}</span>
+                  <strong>${item.count}</strong>
+                </div>
+              `).join('') : `<p style="font-size: ${fontSize * 0.82}px; opacity: 0.7;">Sem falhas registradas</p>`}
+            </div>
+
+            <div class="rounded-lg p-4" style="background-color: ${bgColor}; border: 1px solid ${secondaryColor};">
+              <p class="font-semibold mb-2" style="font-size: ${fontSize * 0.92}px;">IPs mais recorrentes</p>
+              ${topIps.length ? topIps.map((item, index) => `
+                <div class="flex justify-between items-center py-1" style="font-size: ${fontSize * 0.82}px;">
+                  <span>${index + 1}. ${item.ip_address}</span>
+                  <strong>${item.count}</strong>
+                </div>
+              `).join('') : `<p style="font-size: ${fontSize * 0.82}px; opacity: 0.7;">Sem dados</p>`}
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div class="rounded-lg p-4" style="background-color: ${bgColor}; border: 1px solid ${secondaryColor};">
+              <p class="font-semibold mb-2" style="font-size: ${fontSize * 0.92}px;">Últimos acessos por usuário</p>
+              ${latestAccesses.length ? latestAccesses.map((item) => `
+                <div class="py-1" style="font-size: ${fontSize * 0.8}px;">
+                  <div><strong>${item.username}</strong> • ${item.action} • ${item.result === 'success' ? 'sucesso' : 'falha'}</div>
+                  <div style="opacity: 0.7;">${formatAccessLogDate(item.created_at)}</div>
+                </div>
+              `).join('') : `<p style="font-size: ${fontSize * 0.82}px; opacity: 0.7;">Sem dados</p>`}
+            </div>
+
+            <div class="rounded-lg p-4" style="background-color: ${bgColor}; border: 1px solid ${secondaryColor};">
+              <p class="font-semibold mb-2" style="font-size: ${fontSize * 0.92}px;">Último login com sucesso</p>
+              ${lastSuccessByUser.length ? lastSuccessByUser.map((item) => `
+                <div class="py-1" style="font-size: ${fontSize * 0.8}px;">
+                  <div><strong>${item.username}</strong></div>
+                  <div style="opacity: 0.7;">${formatAccessLogDate(item.created_at)}${item.ip_address ? ` • ${item.ip_address}` : ''}</div>
+                </div>
+              `).join('') : `<p style="font-size: ${fontSize * 0.82}px; opacity: 0.7;">Sem dados</p>`}
+            </div>
+
+            <div class="rounded-lg p-4" style="background-color: ${bgColor}; border: 1px solid ${secondaryColor};">
+              <p class="font-semibold mb-2" style="font-size: ${fontSize * 0.92}px;">Falhas por IP</p>
+              ${topFailIps.length ? topFailIps.map((item, index) => `
+                <div class="flex justify-between items-center py-1" style="font-size: ${fontSize * 0.82}px;">
+                  <span>${index + 1}. ${item.ip_address}</span>
+                  <strong>${item.count}</strong>
+                </div>
+              `).join('') : `<p style="font-size: ${fontSize * 0.82}px; opacity: 0.7;">Sem falhas registradas</p>`}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function loadAccessLogSummary() {
+      const target = document.getElementById('accessSummaryPanel');
+      if (!target) return;
+
+      const config = window.elementSdk?.config || defaultConfig;
+      const bgColor = config.background_color || defaultConfig.background_color;
+      const secondaryColor = config.secondary_action || defaultConfig.secondary_action;
+      const fontSize = config.font_size || defaultConfig.font_size;
+
+      target.innerHTML = `<p style="font-size: ${fontSize}px; opacity: 0.7;">Carregando resumo...</p>`;
+
+      try {
+        const query = buildAccessLogQueryParams();
+        const response = await fetch(`${RENDER_API_BASE}/access-log/summary${query ? `?${query}` : ''}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const summary = await response.json();
+        target.innerHTML = renderAccessSummaryCards(summary, fontSize, bgColor, secondaryColor);
+      } catch (error) {
+        target.innerHTML = `<p style="font-size: ${fontSize}px; color: #ef4444;">Erro ao carregar resumo da auditoria.</p>`;
+      }
+    }
+
+    async function loadAccessLogsIntoModal() {
+      const target = document.getElementById('accessLogsList');
+      await loadAccessLogSummary();
+      if (!target) return;
+
+      const config = window.elementSdk?.config || defaultConfig;
+      const bgColor = config.background_color || defaultConfig.background_color;
+      const textColor = config.text_color || defaultConfig.text_color;
+      const secondaryColor = config.secondary_action || defaultConfig.secondary_action;
+      const fontSize = config.font_size || defaultConfig.font_size;
+
+      target.innerHTML = `<p style="font-size: ${fontSize}px; opacity: 0.7;">Carregando registros...</p>`;
+
+      try {
+        const query = buildAccessLogQueryParams();
+        const response = await fetch(`${RENDER_API_BASE}/access-log?limit=300${query ? `&${query}` : ''}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const logs = await response.json();
+        target.innerHTML = renderAccessLogsList(logs, fontSize, bgColor, textColor, secondaryColor);
+      } catch (error) {
+        target.innerHTML = `<p style="font-size: ${fontSize}px; color: #ef4444;">Erro ao carregar registros de acesso.</p>`;
+      }
+    }
+
+
+    function buildAccessLogQueryParams() {
+      const params = new URLSearchParams();
+      const username = document.getElementById('accessUsernameFilter')?.value?.trim();
+      const action = document.getElementById('accessActionFilter')?.value?.trim();
+      const result = document.getElementById('accessResultFilter')?.value?.trim();
+      const q = document.getElementById('accessSearchFilter')?.value?.trim();
+      const dateFrom = document.getElementById('accessDateFromFilter')?.value?.trim();
+      const dateTo = document.getElementById('accessDateToFilter')?.value?.trim();
+
+      if (username) params.set('username', username);
+      if (action) params.set('action', action);
+      if (result) params.set('result', result);
+      if (q) params.set('q', q);
+      if (dateFrom) params.set('date_from', `${dateFrom}T00:00:00`);
+      if (dateTo) params.set('date_to', `${dateTo}T23:59:59`);
+
+      return params.toString();
+    }
+
+    function downloadAccessLogsCsv() {
+      const query = buildAccessLogQueryParams();
+      const url = `${RENDER_API_BASE}/access-log/export${query ? `?${query}` : ''}`;
+      window.open(url, '_blank');
+    }
+
+    function setupAccessLogFilterListeners() {
+      [
+        'accessUsernameFilter',
+        'accessActionFilter',
+        'accessResultFilter',
+        'accessDateFromFilter',
+        'accessDateToFilter',
+        'accessSearchFilter'
+      ].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+
+        el.addEventListener('change', async () => {
+          await loadAccessLogsIntoModal();
+        });
+
+        el.addEventListener('keyup', async (e) => {
+          if (e.key === 'Enter' || id === 'accessSearchFilter') {
+            await loadAccessLogsIntoModal();
+          }
+        });
+      });
+    }
+
+
+    function buildActionLogQueryParams() {
+      const params = new URLSearchParams();
+      const username = document.getElementById('actionUsernameFilter')?.value?.trim();
+      const action = document.getElementById('actionActionFilter')?.value?.trim();
+      const source = document.getElementById('actionSourceFilter')?.value?.trim();
+      const q = document.getElementById('actionSearchFilter')?.value?.trim();
+      const dateFrom = document.getElementById('actionDateFromFilter')?.value?.trim();
+      const dateTo = document.getElementById('actionDateToFilter')?.value?.trim();
+
+      if (username) params.set('username', username);
+      if (action) params.set('action', action);
+      if (source) params.set('source', source);
+      if (q) params.set('q', q);
+      if (dateFrom) params.set('date_from', `${dateFrom}T00:00:00`);
+      if (dateTo) params.set('date_to', `${dateTo}T23:59:59`);
+
+      return params.toString();
+    }
+
+    function downloadActionLogsExcel() {
+      const query = buildActionLogQueryParams();
+      const url = `${RENDER_API_BASE}/audit-log/export${query ? `?${query}` : ''}`;
+      window.open(url, '_blank');
+    }
+
+    function setupActionLogFilterListeners() {
+      [
+        'actionUsernameFilter',
+        'actionActionFilter',
+        'actionSourceFilter',
+        'actionDateFromFilter',
+        'actionDateToFilter',
+        'actionSearchFilter'
+      ].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+
+        el.addEventListener('change', async () => {
+          await loadActionLogsIntoModal();
+        });
+
+        el.addEventListener('keyup', async (e) => {
+          if (e.key === 'Enter' || id === 'actionSearchFilter') {
+            await loadActionLogsIntoModal();
+          }
+        });
+      });
+    }
+
+    function renderActionLogsList(logs, fontSize, bgColor, textColor, secondaryColor) {
+      if (!Array.isArray(logs) || logs.length === 0) {
+        return `
+          <div class="text-center py-10 rounded" style="background-color: ${bgColor};">
+            <p style="font-size: ${fontSize}px; opacity: 0.7;">Nenhuma ação registrada.</p>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+          ${logs.map(log => `
+            <div class="rounded-lg p-4" style="background-color: ${bgColor}; border: 1px solid ${secondaryColor};">
+              <div class="flex justify-between items-start gap-4 flex-wrap">
+                <div>
+                  <p class="font-bold" style="font-size: ${fontSize}px; color: ${textColor};">${log.username || 'desconhecido'}</p>
+                  <p style="font-size: ${fontSize * 0.85}px; opacity: 0.75;">
+                    ${formatAccessLogDate(log.created_at)} • ${log.source || '-'} • ${log.action || '-'}
+                  </p>
+                  <p style="font-size: ${fontSize * 0.82}px; opacity: 0.75; margin-top: 4px;">Tipo: ${log.target_type || '-'} | ID: ${log.target_id || '-'}</p>
+                  ${log.details ? `<p style="font-size: ${fontSize * 0.82}px; opacity: 0.8; margin-top: 6px;">${log.details}</p>` : ''}
+                </div>
+                <div class="px-3 py-1 rounded-full font-semibold" style="background-color: #3b82f6; color: white; font-size: ${fontSize * 0.8}px;">
+                  ${log.action || '-'}
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    async function loadActionLogsIntoModal() {
+      const target = document.getElementById('actionLogsList');
+      if (!target) return;
+
+      const config = window.elementSdk?.config || defaultConfig;
+      const bgColor = config.background_color || defaultConfig.background_color;
+      const textColor = config.text_color || defaultConfig.text_color;
+      const secondaryColor = config.secondary_action || defaultConfig.secondary_action;
+      const fontSize = config.font_size || defaultConfig.font_size;
+
+      target.innerHTML = `<p style="font-size: ${fontSize}px; opacity: 0.7;">Carregando registros...</p>`;
+
+      try {
+        const query = buildActionLogQueryParams();
+        const response = await fetch(`${RENDER_API_BASE}/audit-log?limit=400${query ? `&${query}` : ''}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const logs = await response.json();
+        target.innerHTML = renderActionLogsList(logs, fontSize, bgColor, textColor, secondaryColor);
+      } catch (error) {
+        target.innerHTML = `<p style="font-size: ${fontSize}px; color: #ef4444;">Erro ao carregar auditoria de ações.</p>`;
+      }
+    }
+
     function setupLoginListeners() {
       const form = document.getElementById('loginForm');
       const errorDiv = document.getElementById('loginError');
@@ -1619,6 +2126,7 @@
             currentUser = { username: 'admin', role: 'admin', fullName: 'Administrador' };
             currentView = 'home';
             savePanesSessionState();
+            await logAccessEvent({ username, action: 'login', result: 'success', details: 'Login administrativo realizado com sucesso.' });
             renderCurrentView();
             return;
           }
@@ -1629,8 +2137,10 @@
             currentUser = user;
             currentView = 'home';
             savePanesSessionState();
+            await logAccessEvent({ username, action: 'login', result: 'success', details: 'Login realizado com sucesso.' });
             renderCurrentView();
           } else {
+            await logAccessEvent({ username, action: 'login', result: 'fail', details: 'Usuário ou senha incorretos.' });
             if (errorDiv) {
               errorDiv.classList.remove('hidden');
               setTimeout(() => errorDiv.classList.add('hidden'), 3000);
@@ -1751,7 +2261,9 @@
 
       const logoutBtn = document.getElementById('logoutBtn');
       if (logoutBtn) {
-        logoutBtn.addEventListener('click', () => {
+        logoutBtn.addEventListener('click', async () => {
+          const usernameToLog = currentUser?.username || 'desconhecido';
+          await logAccessEvent({ username: usernameToLog, action: 'logout', result: 'success', details: 'Logout realizado pelo usuário.' });
           currentUser = null;
           currentView = 'login';
           selectedAeronave = null;
@@ -1762,6 +2274,76 @@
           renderCurrentView();
         });
       }
+
+      const auditoriaAcessoBtn = document.getElementById('auditoriaAcessoBtn');
+      const auditoriaAcessoModal = document.getElementById('auditoriaAcessoModal');
+      const closeAuditoriaBtn = document.getElementById('closeAuditoriaBtn');
+      const refreshAuditoriaBtn = document.getElementById('refreshAuditoriaBtn');
+
+      if (auditoriaAcessoBtn && auditoriaAcessoModal) {
+        auditoriaAcessoBtn.addEventListener('click', async () => {
+          auditoriaAcessoModal.classList.remove('hidden');
+          auditoriaAcessoModal.classList.add('flex');
+          await loadAccessLogsIntoModal();
+        });
+      }
+
+      if (closeAuditoriaBtn && auditoriaAcessoModal) {
+        closeAuditoriaBtn.addEventListener('click', () => {
+          auditoriaAcessoModal.classList.add('hidden');
+          auditoriaAcessoModal.classList.remove('flex');
+        });
+      }
+
+      if (refreshAuditoriaBtn) {
+        refreshAuditoriaBtn.addEventListener('click', async () => {
+          await loadAccessLogsIntoModal();
+        });
+      }
+
+      const exportAuditoriaBtn = document.getElementById('exportAuditoriaBtn');
+      if (exportAuditoriaBtn) {
+        exportAuditoriaBtn.addEventListener('click', () => {
+          downloadAccessLogsCsv();
+        });
+      }
+
+      setupAccessLogFilterListeners();
+
+      const auditoriaAcoesBtn = document.getElementById('auditoriaAcoesBtn');
+      const auditoriaAcoesModal = document.getElementById('auditoriaAcoesModal');
+      const closeAuditoriaAcoesBtn = document.getElementById('closeAuditoriaAcoesBtn');
+      const refreshAuditoriaAcoesBtn = document.getElementById('refreshAuditoriaAcoesBtn');
+      const exportAuditoriaAcoesBtn = document.getElementById('exportAuditoriaAcoesBtn');
+
+      if (auditoriaAcoesBtn && auditoriaAcoesModal) {
+        auditoriaAcoesBtn.addEventListener('click', async () => {
+          auditoriaAcoesModal.classList.remove('hidden');
+          auditoriaAcoesModal.classList.add('flex');
+          await loadActionLogsIntoModal();
+        });
+      }
+
+      if (closeAuditoriaAcoesBtn && auditoriaAcoesModal) {
+        closeAuditoriaAcoesBtn.addEventListener('click', () => {
+          auditoriaAcoesModal.classList.add('hidden');
+          auditoriaAcoesModal.classList.remove('flex');
+        });
+      }
+
+      if (refreshAuditoriaAcoesBtn) {
+        refreshAuditoriaAcoesBtn.addEventListener('click', async () => {
+          await loadActionLogsIntoModal();
+        });
+      }
+
+      if (exportAuditoriaAcoesBtn) {
+        exportAuditoriaAcoesBtn.addEventListener('click', () => {
+          downloadActionLogsExcel();
+        });
+      }
+
+      setupActionLogFilterListeners();
 
       const relatorioPendenciasBtn = document.getElementById('relatorioPendenciasBtn');
       const relatorioModal = document.getElementById('relatorioModal');
@@ -1930,11 +2512,11 @@
           e.stopPropagation();
           const id = btn.dataset.id;
           const aeronave = currentData.find(d => d.id === id);
-          
+
           if (!aeronave) return;
 
-          const panes = currentData.filter(d => d.type === 'pane' && d.aeronaveId === id);
-          
+          const historico = getResumoHistoricoAeronave(id);
+
           const confirmDelete = document.createElement('div');
           const config = window.elementSdk?.config || defaultConfig;
           const surfaceColor = config.surface_color || defaultConfig.surface_color;
@@ -1942,35 +2524,79 @@
           const secondaryColor = config.secondary_action || defaultConfig.secondary_action;
           const textColor = config.text_color || defaultConfig.text_color;
           const fontSize = config.font_size || defaultConfig.font_size;
-          
+
           confirmDelete.className = 'fixed inset-0 flex items-center justify-center p-4';
           confirmDelete.style.cssText = `background-color: rgba(0,0,0,0.7); z-index: 2000;`;
           confirmDelete.innerHTML = `
-            <div class="w-full max-w-md rounded-lg p-6" style="background-color: ${surfaceColor};">
-              <h3 class="font-bold mb-4" style="font-size: ${fontSize * 1.3}px; color: ${textColor};">Confirmar Exclusão</h3>
-              <p style="font-size: ${fontSize}px; color: ${textColor}; margin-bottom: 20px;">
-                Tem certeza que deseja excluir a aeronave:<br>
-                <strong>${aeronave.prefixo} - ${aeronave.modelo}</strong><br><br>
-                ${panes.length > 0 ? `<span style="color: #ef4444;">⚠️ Esta aeronave possui ${panes.length} pane(s). Todas serão excluídas.</span>` : ''}
+            <div class="w-full max-w-lg rounded-lg p-6" style="background-color: ${surfaceColor};">
+              <h3 class="font-bold mb-4" style="font-size: ${fontSize * 1.3}px; color: ${textColor};">Gerenciar exclusão da aeronave</h3>
+              <p style="font-size: ${fontSize}px; color: ${textColor}; margin-bottom: 14px;">
+                Escolha como deseja remover a aeronave da tela principal:<br>
+                <strong>${aeronave.prefixo} - ${aeronave.modelo}</strong>
               </p>
-              <div class="flex gap-3">
-                <button id="confirmDeleteAeronave" class="flex-1 px-4 py-2 rounded font-semibold" style="background-color: #ef4444; color: white; font-size: ${fontSize}px;">
-                  Sim, Excluir Tudo
+              <div class="rounded-lg p-4 mb-4" style="background-color: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: ${textColor};">
+                <div style="font-size: ${fontSize * 0.95}px; margin-bottom: 6px;"><strong>Histórico encontrado:</strong></div>
+                <div style="font-size: ${fontSize * 0.9}px; opacity: 0.9; line-height: 1.6;">
+                  • ${historico.totalPanes} discrepância(s)<br>
+                  • ${historico.totalEtapas} etapa(s)<br>
+                  • ${historico.totalPendencias} pendência(s)
+                </div>
+              </div>
+              <div class="rounded-lg p-4 mb-4" style="background-color: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.35); color: ${textColor};">
+                <div style="font-size: ${fontSize * 0.95}px; font-weight: 700; margin-bottom: 6px;">Opção 1 — Arquivar e manter histórico</div>
+                <div style="font-size: ${fontSize * 0.88}px; opacity: 0.9; line-height: 1.5;">
+                  Remove a aeronave da tela principal, mas preserva todo o histórico para futura reativação pelo mesmo prefixo.
+                </div>
+              </div>
+              <div class="rounded-lg p-4 mb-5" style="background-color: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.35); color: ${textColor};">
+                <div style="font-size: ${fontSize * 0.95}px; font-weight: 700; margin-bottom: 6px;">Opção 2 — Excluir definitivamente</div>
+                <div style="font-size: ${fontSize * 0.88}px; opacity: 0.9; line-height: 1.5;">
+                  Apaga a aeronave e também todas as discrepâncias, etapas e pendências vinculadas. Esta ação não preserva o histórico.
+                </div>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <button id="archiveAeronaveBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.95}px;">
+                  Arquivar e manter histórico
                 </button>
-                <button id="cancelDeleteAeronave" class="flex-1 px-4 py-2 rounded font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize}px;">
+                <button id="confirmDeleteAeronave" class="px-4 py-2 rounded font-semibold" style="background-color: #ef4444; color: white; font-size: ${fontSize * 0.95}px;">
+                  Excluir definitivamente
+                </button>
+                <button id="cancelDeleteAeronave" class="px-4 py-2 rounded font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize * 0.95}px;">
                   Cancelar
                 </button>
               </div>
             </div>
           `;
-          
+
           document.body.appendChild(confirmDelete);
-          
+
+          document.getElementById('archiveAeronaveBtn').addEventListener('click', async () => {
+            const payloadArquivado = {
+              ...aeronave,
+              arquivada: true,
+              arquivadaEm: new Date().toISOString(),
+              arquivadaPor: currentUser?.username || 'desconhecido'
+            };
+
+            const result = await window.dataSdk.update(payloadArquivado);
+            if (result.isOk) {
+              if (selectedAeronave?.id === aeronave.id) {
+                selectedAeronave = null;
+              }
+              showToast('Aeronave arquivada com histórico preservado!', 'success');
+            } else {
+              showToast('Erro ao arquivar aeronave', 'error');
+            }
+            document.body.removeChild(confirmDelete);
+          });
+
           document.getElementById('confirmDeleteAeronave').addEventListener('click', async () => {
+            const panes = historico.panes;
+
             for (const pane of panes) {
               const etapas = currentData.filter(d => d.type === 'etapa' && d.paneId === pane.id);
               const pendencias = currentData.filter(d => d.type === 'pendencia' && d.paneId === pane.id);
-              
+
               for (const etapa of etapas) {
                 await window.dataSdk.delete(etapa);
               }
@@ -1979,16 +2605,19 @@
               }
               await window.dataSdk.delete(pane);
             }
-            
+
             const result = await window.dataSdk.delete(aeronave);
             if (result.isOk) {
-              showToast('Aeronave e todas as panes excluídas com sucesso!', 'success');
+              if (selectedAeronave?.id === aeronave.id) {
+                selectedAeronave = null;
+              }
+              showToast('Aeronave e histórico excluídos definitivamente!', 'success');
             } else {
               showToast('Erro ao excluir aeronave', 'error');
             }
             document.body.removeChild(confirmDelete);
           });
-          
+
           document.getElementById('cancelDeleteAeronave').addEventListener('click', () => {
             document.body.removeChild(confirmDelete);
           });
@@ -2018,7 +2647,7 @@
       if (form) {
         form.addEventListener('submit', async (e) => {
           e.preventDefault();
-          
+
           if (currentData.length >= 999) {
             showToast('Limite de 999 registros atingido', 'error');
             return;
@@ -2027,10 +2656,36 @@
           const prefixo = document.getElementById('prefixo').value.trim().toUpperCase();
           const modelo = document.getElementById('modelo').value;
           const iconeUrl = document.getElementById('iconeUrl').value.trim();
+          const fotoFinal = iconeUrl || IMAGENS_FUNDO[modelo] || IMAGENS_FUNDO['Outro'];
 
-          const prefixoExistente = currentData.find(d => d.type === 'aeronave' && d.prefixo === prefixo);
+          const prefixoExistente = currentData.find(d => d.type === 'aeronave' && String(d.prefixo || '').toUpperCase() === prefixo && !isAeronaveArquivada(d));
+          const aeronaveArquivada = currentData.find(d => d.type === 'aeronave' && String(d.prefixo || '').toUpperCase() === prefixo && isAeronaveArquivada(d));
           if (prefixoExistente) {
-            showToast('Já existe uma aeronave com este prefixo', 'error');
+            showToast('Já existe uma aeronave ativa com este prefixo', 'error');
+            return;
+          }
+
+          if (aeronaveArquivada) {
+            const resultReativacao = await window.dataSdk.update({
+              ...aeronaveArquivada,
+              prefixo,
+              modelo,
+              iconeUrl: fotoFinal,
+              arquivada: false,
+              arquivadaEm: null,
+              arquivadaPor: null,
+              reativadaEm: new Date().toISOString(),
+              reativadaPor: currentUser?.username || 'desconhecido'
+            });
+
+            if (resultReativacao.isOk) {
+              modal.classList.add('hidden');
+              modal.classList.remove('flex');
+              form.reset();
+              showToast('Aeronave reativada com histórico recuperado!', 'success');
+            } else {
+              showToast('Erro ao reativar aeronave arquivada', 'error');
+            }
             return;
           }
 
@@ -2039,8 +2694,9 @@
             type: 'aeronave',
             prefixo,
             modelo,
-            iconeUrl: iconeUrl || IMAGENS_FUNDO[modelo] || IMAGENS_FUNDO['Outro'],
-            criadoEm: new Date().toISOString()
+            iconeUrl: fotoFinal,
+            criadoEm: new Date().toISOString(),
+            arquivada: false
           });
 
           if (result.isOk) {
@@ -2105,7 +2761,7 @@
     }
 
     function gerarRelatorioEtapasPaneAvionicos(aeronaveId, paneId) {
-      const aeronave = currentData.find(d => d.type === 'aeronave' && d.id === aeronaveId);
+      const aeronave = getAeronaveById(aeronaveId);
       const pane = currentData.find(d => d.type === 'pane' && d.id === paneId && d.aeronaveId === aeronaveId);
 
       if (!aeronave || !pane) {
@@ -2240,7 +2896,7 @@
     }
 
     function gerarRelatorioAvionicos() {
-      const aeronaves = currentData.filter(d => d.type === 'aeronave');
+      const aeronaves = getAeronavesAtivas();
       const todasPanesAvionicos = [];
 
       aeronaves.forEach(aeronave => {
@@ -2426,7 +3082,7 @@
     }
 
     function gerarRelatorioPendencias(aeronaveId) {
-      const aeronaves = currentData.filter(d => d.type === 'aeronave');
+      const aeronaves = getAeronavesAtivas();
       const aeronavesParaRelatorio = aeronaveId 
         ? aeronaves.filter(a => a.id === aeronaveId)
         : aeronaves;
@@ -2651,30 +3307,116 @@
         }
 
         const ranking = await response.json();
+        const rankingTop10 = Array.isArray(ranking) ? ranking.slice(0, 10) : [];
 
-        if (!Array.isArray(ranking) || ranking.length === 0) {
+        if (!rankingTop10.length) {
           container.innerHTML = `<p style="font-size: ${fontSize}px; opacity: 0.7;">Nenhuma discrepância aberta encontrada para este grupo.</p>`;
           return;
         }
 
-        container.innerHTML = ranking.map((item, index) => `
-          <div class="rounded p-4 cursor-pointer dashboard-pane-ranking-item" data-id="${item.id}" style="background-color: ${bgColor}; border-left: 4px solid ${index === 0 ? '#ef4444' : primaryColor};">
-            <div class="flex items-start justify-between gap-3">
-              <div style="min-width: 0; flex: 1;">
-                <p class="font-bold" style="font-size: ${fontSize * 0.98}px; margin-bottom: 6px;">${index + 1}. ${item.prefixo || 'Sem prefixo'} • ATA ${item.ata || 'N/I'}</p>
-                <p style="font-size: ${fontSize * 0.9}px; opacity: 0.92; line-height: 1.4; word-break: break-word;">${item.descricao || 'Sem descrição'}</p>
-                <div class="flex gap-2 flex-wrap" style="margin-top: 8px;">
-                  <span class="px-2 py-1 rounded" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize * 0.78}px;">${item.status || 'Sem status'}</span>
-                  <span class="px-2 py-1 rounded" style="background-color: rgba(239,68,68,0.16); color: #fecaca; font-size: ${fontSize * 0.78}px;">${item.diasEmAberto} dia${item.diasEmAberto === 1 ? '' : 's'}</span>
-                </div>
+        const gruposStatus = {};
+        rankingTop10.forEach((item) => {
+          const statusKey = item.statusLabel || item.status || 'Sem status';
+          if (!gruposStatus[statusKey]) gruposStatus[statusKey] = [];
+          gruposStatus[statusKey].push(item);
+        });
+
+        const ordemStatus = [
+          'Monitoradas',
+          'Em Progresso',
+          'Aguardando Material',
+          'Aguardando Ferramenta',
+          'Aguardando Transferência'
+        ];
+
+        const gruposOrdenados = Object.keys(gruposStatus).sort((a, b) => {
+          const ia = ordemStatus.indexOf(a);
+          const ib = ordemStatus.indexOf(b);
+          return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+        });
+
+        let contadorGlobal = 0;
+
+        container.innerHTML = gruposOrdenados.map((status) => {
+          const itens = gruposStatus[status] || [];
+
+          return `
+            <div class="mb-5">
+              <div class="mb-2 px-2 py-2 rounded" style="background-color: rgba(255,255,255,0.06);">
+                <p class="font-bold" style="font-size: ${fontSize * 0.92}px;">${status}</p>
               </div>
-              <div class="text-right" style="flex-shrink: 0; min-width: 82px;">
-                <p class="font-bold" style="font-size: ${fontSize * 1.05}px; color: #fca5a5;">${item.horasEmAberto}h</p>
-                <p style="font-size: ${fontSize * 0.75}px; opacity: 0.7;">em aberto</p>
+
+              <div class="space-y-3">
+                ${itens.map((item, indexNoGrupo) => {
+                  contadorGlobal += 1;
+
+                  const diasTexto = item.diasTexto || `${item.diasEmAberto} dia${item.diasEmAberto === 1 ? '' : 's'} pendente`;
+                  const slaLabel = item.slaLabel || 'Dentro do SLA';
+                  const faixa = item.antiguidadeFaixa || 'normal';
+
+                  let corBorda = contadorGlobal === 1 ? '#ef4444' : primaryColor;
+                  let corTempoBg = 'rgba(34,197,94,0.16)';
+                  let corTempoTexto = '#bbf7d0';
+                  let corSlaBg = 'rgba(34,197,94,0.18)';
+                  let corSlaTexto = '#bbf7d0';
+
+                  if (faixa === 'atencao') {
+                    corBorda = '#f59e0b';
+                    corTempoBg = 'rgba(245,158,11,0.16)';
+                    corTempoTexto = '#fde68a';
+                    corSlaBg = 'rgba(245,158,11,0.18)';
+                    corSlaTexto = '#fde68a';
+                  }
+
+                  if (faixa === 'critico') {
+                    corBorda = '#ef4444';
+                    corTempoBg = 'rgba(239,68,68,0.16)';
+                    corTempoTexto = '#fecaca';
+                    corSlaBg = 'rgba(239,68,68,0.18)';
+                    corSlaTexto = '#fecaca';
+                  }
+
+                  return `
+                    <div class="rounded p-4 cursor-pointer dashboard-pane-ranking-item" data-id="${item.id}" style="background-color: ${bgColor}; border-left: 4px solid ${corBorda};">
+                      <div class="flex items-start justify-between gap-3">
+                        <div style="min-width: 0; flex: 1;">
+                          <p class="font-bold" style="font-size: ${fontSize * 0.98}px; margin-bottom: 6px;">
+                            ${contadorGlobal}. ${item.prefixo || 'Sem prefixo'} • ATA ${item.ata || 'N/I'}
+                          </p>
+
+                          <p style="font-size: ${fontSize * 0.9}px; opacity: 0.92; line-height: 1.4; word-break: break-word;">
+                            ${item.descricao || 'Sem descrição'}
+                          </p>
+
+                          <div class="flex gap-2 flex-wrap" style="margin-top: 8px;">
+                            <span class="px-2 py-1 rounded" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize * 0.78}px;">
+                              ${item.statusLabel || item.status || 'Sem status'}
+                            </span>
+
+                            <span class="px-2 py-1 rounded" style="background-color: ${corTempoBg}; color: ${corTempoTexto}; font-size: ${fontSize * 0.78}px;">
+                              ${diasTexto}
+                            </span>
+
+                            <span class="px-2 py-1 rounded" style="background-color: ${corSlaBg}; color: ${corSlaTexto}; font-size: ${fontSize * 0.78}px;">
+                              ${slaLabel}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div class="text-right" style="flex-shrink: 0; min-width: 82px;">
+                          <p class="font-bold" style="font-size: ${fontSize * 1.05}px; color: #fca5a5;">
+                            ${item.horasEmAberto}h
+                          </p>
+                          <p style="font-size: ${fontSize * 0.75}px; opacity: 0.7;">em aberto</p>
+                        </div>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
               </div>
             </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
 
         container.querySelectorAll('.dashboard-pane-ranking-item').forEach(itemEl => {
           itemEl.addEventListener('click', () => {
@@ -2682,7 +3424,7 @@
             selectedPane = currentData.find(d => d.type === 'pane' && d.id === paneId) || null;
             if (selectedPane) {
               previousView = 'dashboard';
-              selectedAeronave = currentData.find(d => d.type === 'aeronave' && d.id === selectedPane.aeronaveId) || null;
+              selectedAeronave = getAeronaveById(selectedPane.aeronaveId);
               currentView = 'pane';
               renderCurrentView();
             }
@@ -2715,7 +3457,7 @@
       document.querySelectorAll('.dashboard-aeronave-item').forEach(item => {
         item.addEventListener('click', () => {
           const aeronaveId = item.dataset.id;
-          selectedAeronave = currentData.find(d => d.type === 'aeronave' && d.id === aeronaveId) || null;
+          selectedAeronave = getAeronaveById(aeronaveId);
           if (selectedAeronave) {
             currentTab = 'lancadas';
             currentView = 'aeronave';
@@ -2729,7 +3471,7 @@
       const primaryColor = config.primary_action || defaultConfig.primary_action;
       const panes = currentData.filter(d => d.type === 'pane');
       const pendencias = currentData.filter(d => d.type === 'pendencia');
-      const aeronaves = currentData.filter(d => d.type === 'aeronave');
+      const aeronaves = getAeronavesAtivas();
       const colors = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16', '#f97316', '#ec4899', '#14b8a6'];
 
       const now = new Date();
@@ -2858,7 +3600,7 @@
               if (!activeElements.length) return;
               const index = activeElements[0].index;
               const aeronaveId = sortedAeronaves[index]?.id;
-              selectedAeronave = currentData.find(d => d.type === 'aeronave' && d.id === aeronaveId) || null;
+              selectedAeronave = getAeronaveById(aeronaveId);
               if (selectedAeronave) {
                 currentTab = 'lancadas';
                 currentView = 'aeronave';
@@ -3186,6 +3928,36 @@
       });
     }
 
+    async function recalculatePaneStatusAfterDeletion(paneId) {
+      const pane = currentData.find(d => d.type === 'pane' && d.id === paneId);
+      if (!pane || pane.paneStatus === 'finalizada') return;
+
+      const etapasRestantes = currentData.filter(d => d.type === 'etapa' && d.paneId === paneId);
+      const pendenciasRestantes = currentData.filter(d => d.type === 'pendencia' && d.paneId === paneId);
+
+      let novoStatus = 'lancada';
+
+      if (pendenciasRestantes.length > 0) {
+        if (pendenciasRestantes.some(p => p.tipoItem === 'ferramenta')) {
+          novoStatus = 'aguardando_ferramenta';
+        } else if (pendenciasRestantes.some(p => p.tipoAquisicao === 'transferencia')) {
+          novoStatus = 'aguardando_transferencia';
+        } else {
+          novoStatus = 'aguardando_material';
+        }
+      } else if (etapasRestantes.length > 0) {
+        novoStatus = 'em_progresso';
+      }
+
+      if (pane.paneStatus !== novoStatus) {
+        const paneAtualizada = { ...pane, paneStatus: novoStatus };
+        const result = await window.dataSdk.update(paneAtualizada);
+        if (result.isOk) {
+          selectedPane = paneAtualizada;
+        }
+      }
+    }
+
     function setupPaneListeners() {
       const backBtn = document.getElementById('backToAeronaveBtn');
       if (backBtn) {
@@ -3292,6 +4064,68 @@
           } else {
             showToast('Erro ao atualizar pane', 'error');
           }
+        });
+      }
+
+      const deletePaneBtn = document.getElementById('deletePaneBtn');
+      if (deletePaneBtn) {
+        deletePaneBtn.addEventListener('click', async () => {
+          const config = window.elementSdk?.config || defaultConfig;
+          const surfaceColor = config.surface_color || defaultConfig.surface_color;
+          const secondaryColor = config.secondary_action || defaultConfig.secondary_action;
+          const textColor = config.text_color || defaultConfig.text_color;
+          const fontSize = config.font_size || defaultConfig.font_size;
+
+          const etapasDaPane = currentData.filter(d => d.type === 'etapa' && d.paneId === selectedPane.id);
+          const pendenciasDaPane = currentData.filter(d => d.type === 'pendencia' && d.paneId === selectedPane.id);
+
+          const confirmDelete = document.createElement('div');
+          confirmDelete.className = 'fixed inset-0 flex items-center justify-center p-4';
+          confirmDelete.style.cssText = 'background-color: rgba(0,0,0,0.7); z-index: 3000;';
+          confirmDelete.innerHTML = `
+            <div class="w-full max-w-md rounded-lg p-6" style="background-color: ${surfaceColor};">
+              <h3 class="font-bold mb-4" style="font-size: ${fontSize * 1.3}px; color: ${textColor};">Confirmar Exclusão</h3>
+              <p style="font-size: ${fontSize}px; color: ${textColor}; margin-bottom: 20px;">
+                Tem certeza que deseja excluir esta discrepância?<br><br>
+                <strong>${selectedPane.paneDescricao}</strong><br>
+                <span style="opacity: 0.75;">ATA ${selectedPane.paneAta || '--'}</span><br><br>
+                <span style="color: #ef4444;">⚠️ Também serão excluídas ${etapasDaPane.length} etapa(s) e ${pendenciasDaPane.length} pendência(s).</span>
+              </p>
+              <div class="flex gap-3">
+                <button id="confirmDeletePane" class="flex-1 px-4 py-2 rounded font-semibold" style="background-color: #ef4444; color: white; font-size: ${fontSize}px;">
+                  Sim, Excluir
+                </button>
+                <button id="cancelDeletePane" class="flex-1 px-4 py-2 rounded font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize}px;">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          `;
+          document.body.appendChild(confirmDelete);
+
+          document.getElementById('cancelDeletePane').addEventListener('click', () => {
+            document.body.removeChild(confirmDelete);
+          });
+
+          document.getElementById('confirmDeletePane').addEventListener('click', async () => {
+            for (const etapa of etapasDaPane) {
+              await window.dataSdk.delete(etapa);
+            }
+            for (const pendencia of pendenciasDaPane) {
+              await window.dataSdk.delete(pendencia);
+            }
+            const result = await window.dataSdk.delete(selectedPane);
+            document.body.removeChild(confirmDelete);
+
+            if (result.isOk) {
+              showToast('Discrepância excluída com sucesso!', 'success');
+              selectedPane = null;
+              currentView = 'aeronave';
+              renderCurrentView();
+            } else {
+              showToast('Erro ao excluir discrepância', 'error');
+            }
+          });
         });
       }
 
@@ -3486,6 +4320,7 @@
           document.getElementById('confirmDeleteEtapa').addEventListener('click', async () => {
             const result = await window.dataSdk.delete(etapa);
             if (result.isOk) {
+              await recalculatePaneStatusAfterDeletion(etapa.paneId);
               showToast('Etapa excluída com sucesso!', 'success');
             } else {
               showToast('Erro ao excluir etapa', 'error');
@@ -3559,14 +4394,7 @@
           document.getElementById('confirmDeletePendencia').addEventListener('click', async () => {
             const result = await window.dataSdk.delete(pendencia);
             if (result.isOk) {
-              const pendenciasRestantes = currentData.filter(d => d.type === 'pendencia' && d.paneId === selectedPane.id && d.id !== pendencia.id);
-              if (pendenciasRestantes.length === 0 && (selectedPane.paneStatus === 'aguardando_transferencia' || selectedPane.paneStatus === 'aguardando_material')) {
-                const paneAtualizada = { 
-                  ...selectedPane, 
-                  paneStatus: 'em_progresso'
-                };
-                await window.dataSdk.update(paneAtualizada);
-              }
+              await recalculatePaneStatusAfterDeletion(pendencia.paneId);
               showToast('Pendência excluída com sucesso!', 'success');
             } else {
               showToast('Erro ao excluir pendência', 'error');
