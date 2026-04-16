@@ -2416,8 +2416,8 @@
         usuarioForm.addEventListener('submit', async (e) => {
           e.preventDefault();
           
-          if (currentData.length >= 999) {
-            showToast('Limite de 999 registros atingido', 'error');
+          if (currentData.length >= 5000) {
+            showToast('Limite de 5000 registros atingido', 'error');
             return;
           }
 
@@ -2648,8 +2648,8 @@
         form.addEventListener('submit', async (e) => {
           e.preventDefault();
 
-          if (currentData.length >= 999) {
-            showToast('Limite de 999 registros atingido', 'error');
+          if (currentData.length >= 5000) {
+            showToast('Limite de 5000 registros atingido', 'error');
             return;
           }
 
@@ -3862,8 +3862,8 @@
         form.addEventListener('submit', async (e) => {
           e.preventDefault();
           
-          if (currentData.length >= 999) {
-            showToast('Limite de 999 registros atingido', 'error');
+          if (currentData.length >= 5000) {
+            showToast('Limite de 5000 registros atingido', 'error');
             return;
           }
 
@@ -4030,8 +4030,8 @@
         retornarProgressoBtn.addEventListener('click', async () => {
           if (!selectedPane) return;
           
-          if (currentData.length >= 999) {
-            showToast('Limite de 999 registros atingido', 'error');
+          if (currentData.length >= 5000) {
+            showToast('Limite de 5000 registros atingido', 'error');
             return;
           }
 
@@ -4166,9 +4166,9 @@
           document.body.appendChild(confirmModal);
           
           document.getElementById('confirmFinalizarBtn').addEventListener('click', async () => {
-            if (currentData.length >= 999) {
+            if (currentData.length >= 5000) {
               document.body.removeChild(confirmModal);
-              showToast('Limite de 999 registros atingido', 'error');
+              showToast('Limite de 5000 registros atingido', 'error');
               return;
             }
 
@@ -4516,8 +4516,8 @@
         etapaForm.addEventListener('submit', async (e) => {
           e.preventDefault();
           
-          if (currentData.length >= 999) {
-            showToast('Limite de 999 registros atingido', 'error');
+          if (currentData.length >= 5000) {
+            showToast('Limite de 5000 registros atingido', 'error');
             return;
           }
 
@@ -4630,8 +4630,8 @@
             return;
           }
           
-          if (currentData.length >= 999) {
-            showToast('Limite de 999 registros atingido', 'error');
+          if (currentData.length >= 5000) {
+            showToast('Limite de 5000 registros atingido', 'error');
             return;
           }
 
