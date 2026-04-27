@@ -831,7 +831,18 @@
     }
 
     function formatPartNumberHtml(partNumber) {
-      return String(partNumber || '').replace(/\n/g, '<br>');
+      let text = String(partNumber || '').trim();
+      if (!text) return '';
+
+      text = text
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n');
+
+      // Preserva a visualização correta dos P/N do SCISSORS SPHERICAL BEARING,
+      // inclusive quando o valor salvo veio de um input e perdeu a quebra de linha.
+      text = text.replace(/(P\/N\s*[A-Z0-9-]+)\s*or\s*(P\/N\s*)/gi, '$1 or\n$2');
+
+      return text.replace(/\n/g, '<br>');
     }
 
     function getComponentDisplayMeasures(component, config = null) {
