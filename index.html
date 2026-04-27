@@ -765,6 +765,14 @@
                         ).join('')}
                       </select>
                     </div>
+                    <div class="mb-4">
+                      <label for="filtroRelatorioStatus" class="block mb-2" style="font-size: ${fontSize}px;">Tipo de relatório</label>
+                      <select id="filtroRelatorioStatus" class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;">
+                        <option value="geral">Geral</option>
+                        <option value="aguardando_material_ferramenta">Aguardando Material/Ferramenta</option>
+                        <option value="monitoradas_progresso">Monitoradas/Em Progresso</option>
+                      </select>
+                    </div>
                     <div class="flex gap-3">
                       <button type="submit" class="flex-1 px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
                         📄 Gerar Relatório
@@ -785,8 +793,10 @@
                     <div class="mb-4">
                       <label for="avionicosModoSelect" class="block mb-2" style="font-size: ${fontSize}px;">Tipo de relatório</label>
                       <select id="avionicosModoSelect" class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;">
-                        <option value="geral">Pendências normais</option>
-                        <option value="aeronave">Por aeronave</option>
+                        <option value="geral">Geral</option>
+                        <option value="aguardando_material_ferramenta">Aguardando Material/Ferramenta</option>
+                        <option value="monitoradas_progresso">Monitoradas/Em Progresso</option>
+                        <option value="aeronave">Por aeronave - etapas de uma discrepância</option>
                       </select>
                     </div>
 
@@ -2227,8 +2237,8 @@
           e.preventDefault();
           const modo = avionicosModoSelect?.value || 'geral';
 
-          if (modo === 'geral') {
-            gerarRelatorioAvionicos();
+          if (modo === 'geral' || modo === 'aguardando_material_ferramenta' || modo === 'monitoradas_progresso') {
+            gerarRelatorioAvionicos(modo);
           } else {
             const aeronaveId = filtroAvionicosAeronave?.value || '';
             const paneId = filtroAvionicosPane?.value || '';
@@ -2368,7 +2378,8 @@
         relatorioForm.addEventListener('submit', (e) => {
           e.preventDefault();
           const aeronaveId = document.getElementById('filtroAeronave').value;
-          gerarRelatorioPendencias(aeronaveId);
+          const filtroStatus = document.getElementById('filtroRelatorioStatus')?.value || 'geral';
+          gerarRelatorioPendencias(aeronaveId, filtroStatus);
           relatorioModal.classList.add('hidden');
           relatorioModal.classList.remove('flex');
         });
@@ -2895,16 +2906,63 @@
       janelaRelatorio.document.close();
     }
 
-    function gerarRelatorioAvionicos() {
+    function getFiltroRelatorioLabel(filtro) {
+      const labels = {
+        geral: 'Geral',
+        aguardando_material_ferramenta: 'Aguardando Material/Ferramenta',
+        monitoradas_progresso: 'Monitoradas/Em Progresso'
+      };
+      return labels[filtro] || 'Geral';
+    }
+
+    function statusPaneIncluidoNoFiltro(status, filtro) {
+      const statusNormalizado = String(status || '').trim();
+
+      if (filtro === 'aguardando_material_ferramenta') {
+        return statusNormalizado === 'aguardando_material' || statusNormalizado === 'aguardando_ferramenta';
+      }
+
+      if (filtro === 'monitoradas_progresso') {
+        return statusNormalizado === 'lancada' || statusNormalizado === 'em_progresso';
+      }
+
+      return statusNormalizado !== 'finalizada';
+    }
+
+    function getStatusPaneRelatorioLabel(status) {
+      const labels = {
+        lancada: '📋 Monitorada',
+        em_progresso: '🔧 Em Progresso',
+        aguardando_material: '📦 Aguardando Material',
+        aguardando_ferramenta: '🧰 Aguardando Ferramenta',
+        aguardando_transferencia: '🔄 Aguardando Transferência',
+        finalizada: '✅ Finalizada'
+      };
+      return labels[status] || status || '-';
+    }
+
+    function getStatusPaneClasseRelatorio(status) {
+      const classes = {
+        lancada: 'status-lancada',
+        em_progresso: 'status-progresso',
+        aguardando_material: 'status-material',
+        aguardando_ferramenta: 'status-ferramenta',
+        aguardando_transferencia: 'status-transferencia'
+      };
+      return classes[status] || '';
+    }
+
+    function gerarRelatorioAvionicos(filtro = 'geral') {
       const aeronaves = getAeronavesAtivas();
       const todasPanesAvionicos = [];
+      const filtroLabel = getFiltroRelatorioLabel(filtro);
 
       aeronaves.forEach(aeronave => {
         const panes = currentData.filter(d => 
           d.type === 'pane' && 
           d.aeronaveId === aeronave.id &&
           d.paneTipo === 'avionico' &&
-          (d.paneStatus === 'lancada' || d.paneStatus === 'em_progresso')
+          statusPaneIncluidoNoFiltro(d.paneStatus, filtro)
         );
 
         panes.forEach(pane => {
@@ -2916,7 +2974,7 @@
       });
 
       const janelaRelatorio = window.open('', '_blank');
-      
+
       const config = window.elementSdk?.config || defaultConfig;
 
       janelaRelatorio.document.write(`
@@ -2993,6 +3051,9 @@
             }
             .status-lancada { background-color: #fef3c7; }
             .status-progresso { background-color: #dbeafe; }
+            .status-material { background-color: #e0f2fe; }
+            .status-ferramenta { background-color: #ede9fe; }
+            .status-transferencia { background-color: #f3f4f6; }
             .total-row {
               font-weight: bold;
               background-color: #f0f0f0;
@@ -3008,7 +3069,8 @@
           <h1>📻 Relatório de Pendências Aviônicos</h1>
           <div class="info">
             <p><strong>Data de Emissão:</strong> ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}</p>
-            <p><strong>Total de Panes Aviônicas (Lançadas + Em Progresso):</strong> ${todasPanesAvionicos.length}</p>
+            <p><strong>Filtro:</strong> ${filtroLabel}</p>
+            <p><strong>Total de Discrepâncias Aviônicas:</strong> ${todasPanesAvionicos.length}</p>
           </div>
 
           ${aeronaves.length === 0 ? `
@@ -3019,39 +3081,39 @@
 
           ${aeronaves.map((aeronave, aeronaveIndex) => {
             const panesAeronave = todasPanesAvionicos.filter(p => p.aeronave.id === aeronave.id);
-            
+
             if (panesAeronave.length === 0) return '';
 
             return `
               ${aeronaveIndex > 0 ? '<div class="page-break"></div>' : ''}
               <div class="aeronave-section">
                 <div class="aeronave-title">
-                  🚁 ${aeronave.prefixo} - ${aeronave.modelo} (${panesAeronave.length} pane${panesAeronave.length !== 1 ? 's' : ''} aviônica${panesAeronave.length !== 1 ? 's' : ''})
+                  🚁 ${aeronave.prefixo} - ${aeronave.modelo} (${panesAeronave.length} discrepância${panesAeronave.length !== 1 ? 's' : ''} aviônica${panesAeronave.length !== 1 ? 's' : ''})
                 </div>
 
                 <table>
                   <thead>
                     <tr>
                       <th style="width: 8%;">ATA</th>
-                      <th style="width: 12%;">Status</th>
-                      <th style="width: 35%;">Descrição da Pane</th>
+                      <th style="width: 16%;">Status</th>
+                      <th style="width: 35%;">Descrição da Discrepância</th>
                       <th style="width: 15%;">Responsável</th>
                       <th style="width: 12%;">Data Criação</th>
-                      <th style="width: 18%;">Criado Por</th>
+                      <th style="width: 14%;">Criado Por</th>
                     </tr>
                   </thead>
                   <tbody>
                     ${panesAeronave.map(item => {
-                      const statusLabel = item.pane.paneStatus === 'lancada' ? '📋 Lançada' : '🔧 Em Progresso';
-                      const classeStatus = item.pane.paneStatus === 'lancada' ? 'status-lancada' : 'status-progresso';
+                      const statusLabel = getStatusPaneRelatorioLabel(item.pane.paneStatus);
+                      const classeStatus = getStatusPaneClasseRelatorio(item.pane.paneStatus);
                       const dataCriacao = item.pane.criadoEm ? new Date(item.pane.criadoEm).toLocaleDateString('pt-BR') : '-';
-                      
+
                       return `
                         <tr class="${classeStatus}">
-                          <td>${item.pane.paneAta}</td>
+                          <td>${item.pane.paneAta || '-'}</td>
                           <td>${statusLabel}</td>
-                          <td>${item.pane.paneDescricao}</td>
-                          <td>${item.pane.paneResponsavel}</td>
+                          <td>${item.pane.paneDescricao || '-'}</td>
+                          <td>${item.pane.paneResponsavel || '-'}</td>
                           <td>${dataCriacao}</td>
                           <td>${item.pane.criadoPor || '-'}</td>
                         </tr>
@@ -3065,59 +3127,79 @@
 
           ${todasPanesAvionicos.length === 0 ? `
             <p style="padding: 20px; background-color: #d1fae5; border: 1px solid #10b981; border-radius: 5px;">
-              ✅ Nenhuma pane aviônica lançada ou em progresso encontrada.
+              ✅ Nenhuma discrepância aviônica encontrada para o filtro selecionado.
             </p>
           ` : ''}
 
           <div class="info" style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #000;">
             <p><strong>Legenda:</strong></p>
-            <p>📋 Lançada (fundo amarelo) | 🔧 Em Progresso (fundo azul)</p>
-            <p><strong>Nota:</strong> Este relatório lista apenas panes de tipo Aviônico com status Lançada ou Em Progresso.</p>
+            <p>📋 Monitorada | 🔧 Em Progresso | 📦 Aguardando Material | 🧰 Aguardando Ferramenta | 🔄 Aguardando Transferência</p>
+            <p><strong>Nota:</strong> Este relatório lista discrepâncias do tipo Aviônico conforme o filtro selecionado.</p>
           </div>
         </body>
         </html>
       `);
-      
+
       janelaRelatorio.document.close();
     }
 
-    function gerarRelatorioPendencias(aeronaveId) {
+    function gerarRelatorioPendencias(aeronaveId, filtro = 'geral') {
       const aeronaves = getAeronavesAtivas();
       const aeronavesParaRelatorio = aeronaveId 
         ? aeronaves.filter(a => a.id === aeronaveId)
         : aeronaves;
 
+      const filtroLabel = getFiltroRelatorioLabel(filtro);
+      const relatorioPanesSemPendencia = filtro === 'monitoradas_progresso';
       const todasPendencias = [];
+      const todasPanesRelatorio = [];
 
       aeronavesParaRelatorio.forEach(aeronave => {
-        const panes = currentData.filter(d => 
-          d.type === 'pane' && 
-          d.aeronaveId === aeronave.id &&
-          (d.paneStatus === 'aguardando_transferencia' || d.paneStatus === 'aguardando_material')
-        );
+        const panes = currentData.filter(d => {
+          if (d.type !== 'pane' || d.aeronaveId !== aeronave.id) return false;
+
+          if (relatorioPanesSemPendencia) {
+            return d.paneStatus === 'lancada' || d.paneStatus === 'em_progresso';
+          }
+
+          if (filtro === 'aguardando_material_ferramenta') {
+            return d.paneStatus === 'aguardando_material' || d.paneStatus === 'aguardando_ferramenta';
+          }
+
+          return d.paneStatus === 'aguardando_transferencia' || d.paneStatus === 'aguardando_material';
+        });
 
         panes.forEach(pane => {
-          const pendencias = currentData.filter(d => d.type === 'pendencia' && d.paneId === pane.id);
-          pendencias.forEach(pendencia => {
-            todasPendencias.push({
+          if (relatorioPanesSemPendencia) {
+            todasPanesRelatorio.push({
               aeronave,
-              pane,
-              pendencia
+              pane
             });
-          });
+          } else {
+            const pendencias = currentData.filter(d => d.type === 'pendencia' && d.paneId === pane.id);
+            pendencias.forEach(pendencia => {
+              todasPendencias.push({
+                aeronave,
+                pane,
+                pendencia
+              });
+            });
+          }
         });
       });
 
       const janelaRelatorio = window.open('', '_blank');
-      
+
       const config = window.elementSdk?.config || defaultConfig;
       const bgColor = config.background_color || defaultConfig.background_color;
       const surfaceColor = config.surface_color || defaultConfig.surface_color;
       const textColor = config.text_color || defaultConfig.text_color;
 
-      const tituloRelatorio = aeronaveId 
+      const tituloRelatorioBase = aeronaveId 
         ? `Relatório de Pendências - ${aeronavesParaRelatorio[0]?.prefixo || ''}`
         : 'Relatório de Pendências - Todas as Aeronaves';
+
+      const tituloRelatorio = `${tituloRelatorioBase} - ${filtroLabel}`;
 
       janelaRelatorio.document.write(`
         <!DOCTYPE html>
@@ -3193,6 +3275,11 @@
             }
             .tipo-ferramenta { background-color: #fef3c7; }
             .tipo-material { background-color: #dbeafe; }
+            .status-lancada { background-color: #fef3c7; }
+            .status-progresso { background-color: #dbeafe; }
+            .status-material { background-color: #e0f2fe; }
+            .status-ferramenta { background-color: #ede9fe; }
+            .status-transferencia { background-color: #f3f4f6; }
             .total-row {
               font-weight: bold;
               background-color: #f0f0f0;
@@ -3208,7 +3295,8 @@
           <h1>${tituloRelatorio}</h1>
           <div class="info">
             <p><strong>Data de Emissão:</strong> ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}</p>
-            <p><strong>Total de Pendências:</strong> ${todasPendencias.length}</p>
+            <p><strong>Filtro:</strong> ${filtroLabel}</p>
+            <p><strong>Total:</strong> ${relatorioPanesSemPendencia ? todasPanesRelatorio.length : todasPendencias.length}</p>
           </div>
 
           ${aeronavesParaRelatorio.length === 0 ? `
@@ -3217,76 +3305,133 @@
             </p>
           ` : ''}
 
-          ${aeronavesParaRelatorio.map((aeronave, aeronaveIndex) => {
-            const pendenciasAeronave = todasPendencias.filter(p => p.aeronave.id === aeronave.id);
-            
-            if (pendenciasAeronave.length === 0) return '';
+          ${relatorioPanesSemPendencia ? `
+            ${aeronavesParaRelatorio.map((aeronave, aeronaveIndex) => {
+              const panesAeronave = todasPanesRelatorio.filter(p => p.aeronave.id === aeronave.id);
 
-            return `
-              ${aeronaveIndex > 0 ? '<div class="page-break"></div>' : ''}
-              <div class="aeronave-section">
-                <div class="aeronave-title">
-                  🚁 ${aeronave.prefixo} - ${aeronave.modelo} (${pendenciasAeronave.length} pendência${pendenciasAeronave.length !== 1 ? 's' : ''})
+              if (panesAeronave.length === 0) return '';
+
+              return `
+                ${aeronaveIndex > 0 ? '<div class="page-break"></div>' : ''}
+                <div class="aeronave-section">
+                  <div class="aeronave-title">
+                    🚁 ${aeronave.prefixo} - ${aeronave.modelo} (${panesAeronave.length} discrepância${panesAeronave.length !== 1 ? 's' : ''})
+                  </div>
+
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style="width: 8%;">ATA</th>
+                        <th style="width: 16%;">Status</th>
+                        <th style="width: 36%;">Descrição da Discrepância</th>
+                        <th style="width: 15%;">Responsável</th>
+                        <th style="width: 12%;">Data Criação</th>
+                        <th style="width: 13%;">Criado Por</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${panesAeronave.map(item => {
+                        const statusLabel = getStatusPaneRelatorioLabel(item.pane.paneStatus);
+                        const classeStatus = getStatusPaneClasseRelatorio(item.pane.paneStatus);
+                        const dataCriacao = item.pane.criadoEm ? new Date(item.pane.criadoEm).toLocaleDateString('pt-BR') : '-';
+
+                        return `
+                          <tr class="${classeStatus}">
+                            <td>${item.pane.paneAta || '-'}</td>
+                            <td>${statusLabel}</td>
+                            <td>${item.pane.paneDescricao || '-'}</td>
+                            <td>${item.pane.paneResponsavel || '-'}</td>
+                            <td>${dataCriacao}</td>
+                            <td>${item.pane.criadoPor || '-'}</td>
+                          </tr>
+                        `;
+                      }).join('')}
+                    </tbody>
+                  </table>
                 </div>
+              `;
+            }).join('')}
 
-                <table>
-                  <thead>
-                    <tr>
-                      <th style="width: 6%;">ATA</th>
-                      <th style="width: 16%;">Pane</th>
-                      <th style="width: 6%;">Tipo</th>
-                      <th style="width: 6%;">Aquisição</th>
-                      <th style="width: 18%;">Descrição</th>
-                      <th style="width: 10%;">P/N</th>
-                      <th style="width: 8%;">SMS</th>
-                      <th style="width: 9%;">Task Card</th>
-                      <th style="width: 10%;">Responsável</th>
-                      <th style="width: 11%;">Data Inserção</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${pendenciasAeronave.map(item => {
-                      const tipoLabel = item.pendencia.tipoItem === 'ferramenta' ? '🔧 Ferramenta' : '📦 Material';
-                      const tipoAquisicaoLabel = item.pendencia.tipoAquisicao === 'transferencia' ? '🔄 Transf.' : '🛒 Compra';
-                      const classeItem = item.pendencia.tipoItem === 'ferramenta' ? 'tipo-ferramenta' : 'tipo-material';
-                      const dataInsercao = item.pendencia.criadoEm ? new Date(item.pendencia.criadoEm).toLocaleDateString('pt-BR') : '-';
-                      
-                      return `
-                        <tr class="${classeItem}">
-                          <td>${item.pane.paneAta}</td>
-                          <td>${item.pane.paneDescricao}</td>
-                          <td>${tipoLabel}</td>
-                          <td>${tipoAquisicaoLabel}</td>
-                          <td>${item.pendencia.descricaoMaterial}</td>
-                          <td>${item.pendencia.partNumber}</td>
-                          <td>${item.pendencia.sms}</td>
-                          <td>${item.pendencia.taskCard}</td>
-                          <td>${item.pendencia.etapaUsuario}</td>
-                          <td>${dataInsercao}</td>
-                        </tr>
-                      `;
-                    }).join('')}
-                  </tbody>
-                </table>
-              </div>
-            `;
-          }).join('')}
+            ${todasPanesRelatorio.length === 0 ? `
+              <p style="padding: 20px; background-color: #d1fae5; border: 1px solid #10b981; border-radius: 5px;">
+                ✅ Nenhuma discrepância Monitorada ou Em Progresso encontrada para ${aeronaveId ? 'esta aeronave' : 'as aeronaves'}.
+              </p>
+            ` : ''}
+          ` : `
+            ${aeronavesParaRelatorio.map((aeronave, aeronaveIndex) => {
+              const pendenciasAeronave = todasPendencias.filter(p => p.aeronave.id === aeronave.id);
 
-          ${todasPendencias.length === 0 ? `
-            <p style="padding: 20px; background-color: #d1fae5; border: 1px solid #10b981; border-radius: 5px;">
-              ✅ Nenhuma pendência encontrada para ${aeronaveId ? 'esta aeronave' : 'as aeronaves'}.
-            </p>
-          ` : ''}
+              if (pendenciasAeronave.length === 0) return '';
+
+              return `
+                ${aeronaveIndex > 0 ? '<div class="page-break"></div>' : ''}
+                <div class="aeronave-section">
+                  <div class="aeronave-title">
+                    🚁 ${aeronave.prefixo} - ${aeronave.modelo} (${pendenciasAeronave.length} pendência${pendenciasAeronave.length !== 1 ? 's' : ''})
+                  </div>
+
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style="width: 6%;">ATA</th>
+                        <th style="width: 13%;">Status</th>
+                        <th style="width: 15%;">Pane</th>
+                        <th style="width: 6%;">Tipo</th>
+                        <th style="width: 6%;">Aquisição</th>
+                        <th style="width: 16%;">Descrição</th>
+                        <th style="width: 9%;">P/N</th>
+                        <th style="width: 8%;">SMS</th>
+                        <th style="width: 8%;">Task Card</th>
+                        <th style="width: 8%;">Responsável</th>
+                        <th style="width: 9%;">Data Inserção</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${pendenciasAeronave.map(item => {
+                        const tipoLabel = item.pendencia.tipoItem === 'ferramenta' ? '🔧 Ferramenta' : '📦 Material';
+                        const tipoAquisicaoLabel = item.pendencia.tipoAquisicao === 'transferencia' ? '🔄 Transf.' : '🛒 Compra';
+                        const classeItem = item.pendencia.tipoItem === 'ferramenta' ? 'tipo-ferramenta' : 'tipo-material';
+                        const dataInsercao = item.pendencia.criadoEm ? new Date(item.pendencia.criadoEm).toLocaleDateString('pt-BR') : '-';
+
+                        return `
+                          <tr class="${classeItem}">
+                            <td>${item.pane.paneAta || '-'}</td>
+                            <td>${getStatusPaneRelatorioLabel(item.pane.paneStatus)}</td>
+                            <td>${item.pane.paneDescricao || '-'}</td>
+                            <td>${tipoLabel}</td>
+                            <td>${tipoAquisicaoLabel}</td>
+                            <td>${item.pendencia.descricaoMaterial || '-'}</td>
+                            <td>${item.pendencia.partNumber || '-'}</td>
+                            <td>${item.pendencia.sms || '-'}</td>
+                            <td>${item.pendencia.taskCard || '-'}</td>
+                            <td>${item.pendencia.etapaUsuario || '-'}</td>
+                            <td>${dataInsercao}</td>
+                          </tr>
+                        `;
+                      }).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              `;
+            }).join('')}
+
+            ${todasPendencias.length === 0 ? `
+              <p style="padding: 20px; background-color: #d1fae5; border: 1px solid #10b981; border-radius: 5px;">
+                ✅ Nenhuma pendência encontrada para ${aeronaveId ? 'esta aeronave' : 'as aeronaves'} no filtro selecionado.
+              </p>
+            ` : ''}
+          `}
 
           <div class="info" style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #000;">
             <p><strong>Legenda:</strong></p>
             <p>🔧 Ferramenta (fundo amarelo) | 📦 Material (fundo azul)</p>
+            <p>📋 Monitorada | 🔧 Em Progresso | 📦 Aguardando Material | 🧰 Aguardando Ferramenta | 🔄 Aguardando Transferência</p>
             <p>🔄 Transferência | 🛒 Compra</p>
           </div>
         </body>
         </html>
       `);
-      
+
       janelaRelatorio.document.close();
     }
 
