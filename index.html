@@ -101,6 +101,20 @@
     }
   }
 
+
+  @keyframes feedbackDiurnoPiscando {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.18), 0 6px 18px rgba(255,255,255,0.20);
+    }
+    50% {
+      opacity: 0.58;
+      transform: scale(1.03);
+      box-shadow: 0 0 0 4px rgba(255,255,255,0.36), 0 8px 22px rgba(255,255,255,0.35);
+    }
+  }
+
   @media print {
     .no-print { display: none !important; }
     body { background: white !important; color: black !important; }
@@ -284,6 +298,54 @@
       };
     }
 
+
+    function etapaSolicitaFeedbackDiurno(etapa) {
+      return !!(
+        etapa &&
+        etapa.type === 'etapa' &&
+        (etapa.feedbackDiurnoSolicitado === true || etapa.solicitarFeedbackDiurno === true) &&
+        etapa.feedbackDiurnoRespondido !== true &&
+        !String(etapa.feedbackDiurnoResposta || '').trim()
+      );
+    }
+
+    function getFeedbackDiurnoPendentes() {
+      return currentData
+        .filter(etapaSolicitaFeedbackDiurno)
+        .map(etapa => {
+          const pane = currentData.find(d => d.type === 'pane' && d.id === etapa.paneId) || null;
+          const aeronave = pane ? getAeronaveById(pane.aeronaveId) : null;
+          return { etapa, pane, aeronave };
+        })
+        .filter(item => item.pane && item.aeronave && item.pane.paneStatus !== 'finalizada' && !isAeronaveArquivada(item.aeronave))
+        .sort((a, b) => {
+          const da = new Date(a.etapa.feedbackDiurnoSolicitadoEm || a.etapa.etapaData || a.etapa.criadoEm || 0).getTime();
+          const db = new Date(b.etapa.feedbackDiurnoSolicitadoEm || b.etapa.etapaData || b.etapa.criadoEm || 0).getTime();
+          return da - db;
+        });
+    }
+
+    function abrirPanePorFeedback(paneId) {
+      const pane = currentData.find(d => d.type === 'pane' && d.id === paneId);
+      if (!pane) {
+        showToast('Discrepância não encontrada', 'error');
+        return;
+      }
+
+      const aeronave = getAeronaveById(pane.aeronaveId);
+      if (!aeronave) {
+        showToast('Aeronave vinculada não encontrada', 'error');
+        return;
+      }
+
+      selectedAeronave = aeronave;
+      selectedPane = pane;
+      selectedAta = null;
+      previousView = 'home';
+      currentView = 'pane';
+      renderCurrentView();
+    }
+
     function showToast(message, type = 'success') {
       const config = window.elementSdk?.config || defaultConfig;
       const fontSize = config.font_size || defaultConfig.font_size;
@@ -406,6 +468,7 @@
     function renderHome(bgColor, surfaceColor, textColor, primaryColor, secondaryColor, fontFamily, fontSize, titulo, subtitulo) {
       const aeronaves = getAeronavesAtivas();
       const imagemFundo = 'https://imgur.com/eSRiGVh.jpg';
+      const feedbackPendentes = getFeedbackDiurnoPendentes();
       
       return `
         <div class="w-full h-full overflow-auto" style="background-image: url('${imagemFundo}'); background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; color: ${textColor}; font-family: ${fontFamily}, sans-serif;">
@@ -468,7 +531,7 @@
                 <p style="font-size: ${fontSize * 1.2}px; opacity: 0.6;">Nenhuma aeronave cadastrada</p>
               </div>
             ` : `
-              <div class="mb-6 rounded-lg p-6" style="background-color: ${surfaceColor};">
+              <div class="mb-6 rounded-lg p-6" style="background-color: ${surfaceColor}; position: relative; min-height: 164px;">
                 <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.5}px;">🚁 Total de Aeronaves: ${aeronaves.length}</h2>
                 <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                   ${MODELOS_HELICOPTERO.map(modelo => {
@@ -483,6 +546,11 @@
                     `;
                   }).join('')}
                 </div>
+                ${feedbackPendentes.length > 0 ? `
+                  <button id="feedbackDiurnoAlertBtn" class="absolute rounded-full font-bold" style="right: 16px; bottom: 16px; background-color: #ffffff; color: #111827; padding: 8px 16px; font-size: ${fontSize * 0.82}px; animation: feedbackDiurnoPiscando 1.1s infinite; z-index: 12; border: 2px solid #f59e0b;">
+                    Aguardando FeedBack Diurno (${feedbackPendentes.length})
+                  </button>
+                ` : ''}
               </div>
 
               ${MODELOS_HELICOPTERO.map(modelo => {
@@ -550,6 +618,52 @@
                 `;
               }).join('')}
             `}
+
+            <div id="feedbackDiurnoModal" class="hidden fixed inset-0 items-center justify-center p-4" style="background-color: rgba(0,0,0,0.7); z-index: 1200;">
+              <div class="w-full max-w-4xl rounded-lg p-6" style="background-color: ${surfaceColor}; max-height: 90vh; overflow-y: auto;">
+                <div class="flex justify-between items-center gap-3 mb-4">
+                  <div>
+                    <h2 class="font-bold" style="font-size: ${fontSize * 1.5}px; color: ${textColor};">Aguardando FeedBack Diurno</h2>
+                    <p style="font-size: ${fontSize * 0.88}px; opacity: 0.75; margin-top: 4px;">Clique em uma discrepância para abrir o registro e responder o retorno pendente.</p>
+                  </div>
+                  <button id="closeFeedbackDiurnoBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
+                    Fechar
+                  </button>
+                </div>
+                ${feedbackPendentes.length === 0 ? `
+                  <p style="font-size: ${fontSize}px; opacity: 0.7;">Nenhuma discrepância aguardando FeedBack Diurno.</p>
+                ` : `
+                  <div class="space-y-3">
+                    ${feedbackPendentes.map(item => `
+                      <div class="feedback-diurno-item rounded p-4 cursor-pointer" data-pane-id="${item.pane.id}" style="background-color: ${bgColor}; border-left: 4px solid #ffffff;">
+                        <div class="flex justify-between gap-3 flex-wrap">
+                          <div style="min-width: 0; flex: 1;">
+                            <p class="font-bold" style="font-size: ${fontSize}px; margin-bottom: 4px; color: ${textColor};">
+                              ${item.aeronave.prefixo} • ${item.aeronave.modelo} • ATA ${item.pane.paneAta || 'N/I'}
+                            </p>
+                            <p style="font-size: ${fontSize * 0.9}px; opacity: 0.88; line-height: 1.4; color: ${textColor};">
+                              ${item.pane.paneDescricao || 'Sem descrição'}
+                            </p>
+                            <div class="rounded p-3" style="background-color: rgba(255,255,255,0.06); margin-top: 10px;">
+                              <p style="font-size: ${fontSize * 0.82}px; opacity: 0.75; margin-bottom: 4px; color: ${textColor};">Retorno aguardado:</p>
+                              <p style="font-size: ${fontSize * 0.9}px; color: ${textColor}; line-height: 1.4;">${item.etapa.etapaDescricao || '-'}</p>
+                            </div>
+                          </div>
+                          <div class="text-right" style="min-width: 160px;">
+                            <span class="px-3 py-1 rounded-full font-bold" style="background-color: #ffffff; color: #111827; font-size: ${fontSize * 0.78}px; display: inline-block;">
+                              Aguardando resposta
+                            </span>
+                            <p style="font-size: ${fontSize * 0.76}px; opacity: 0.7; margin-top: 8px; color: ${textColor};">
+                              ${formatarDataHoraArquivo(item.etapa.feedbackDiurnoSolicitadoEm || item.etapa.etapaData || item.etapa.criadoEm)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    `).join('')}
+                  </div>
+                `}
+              </div>
+            </div>
 
             ${currentUser && currentUser.role === 'admin' ? `
               <div id="addAeronaveModal" class="hidden fixed inset-0 items-center justify-center p-4" style="background-color: rgba(0,0,0,0.7); z-index: 1000;">
@@ -1470,6 +1584,30 @@
                           </div>
                         ` : ''}
                         <p style="font-size: ${fontSize}px; margin-right: 120px; margin-bottom: ${fotos.length > 0 ? '12px' : '0'};">${etapa.etapaDescricao}</p>
+                        ${(etapa.feedbackDiurnoSolicitado === true || etapa.solicitarFeedbackDiurno === true) ? `
+                          <div class="rounded p-3" style="background-color: ${etapaSolicitaFeedbackDiurno(etapa) ? 'rgba(255,255,255,0.10)' : 'rgba(34,197,94,0.12)'}; border: 1px solid ${etapaSolicitaFeedbackDiurno(etapa) ? 'rgba(255,255,255,0.45)' : 'rgba(34,197,94,0.45)'}; margin: 10px 0 12px 0;">
+                            <div class="flex justify-between items-start gap-3 flex-wrap">
+                              <div style="min-width: 0; flex: 1;">
+                                <p class="font-bold" style="font-size: ${fontSize * 0.9}px; color: ${etapaSolicitaFeedbackDiurno(etapa) ? '#ffffff' : '#bbf7d0'};">
+                                  ${etapaSolicitaFeedbackDiurno(etapa) ? 'Aguardando FeedBack Diurno' : 'FeedBack Diurno respondido'}
+                                </p>
+                                ${etapa.feedbackDiurnoResposta ? `
+                                  <p style="font-size: ${fontSize * 0.88}px; margin-top: 6px; line-height: 1.4;">${etapa.feedbackDiurnoResposta}</p>
+                                  <p style="font-size: ${fontSize * 0.78}px; opacity: 0.68; margin-top: 6px;">
+                                    Respondido por ${etapa.feedbackDiurnoRespondidoPor || '-'} em ${formatarDataHoraArquivo(etapa.feedbackDiurnoRespondidoEm)}
+                                  </p>
+                                ` : `
+                                  <p style="font-size: ${fontSize * 0.78}px; opacity: 0.72; margin-top: 5px;">O alerta da página inicial ficará ativo até registrar uma resposta.</p>
+                                `}
+                              </div>
+                              ${etapaSolicitaFeedbackDiurno(etapa) && currentUser && currentUser.role !== 'mecanico' ? `
+                                <button class="responder-feedback-diurno-btn px-3 py-2 rounded font-semibold" data-id="${etapa.id}" style="background-color: #ffffff; color: #111827; font-size: ${fontSize * 0.78}px; flex-shrink: 0;">
+                                  Registrar Resposta
+                                </button>
+                              ` : ''}
+                            </div>
+                          </div>
+                        ` : ''}
                         ${fotos.length > 0 ? `
                           <div class="flex gap-2 flex-wrap mb-3">
                             ${fotos.map((foto, idx) => `
@@ -1501,6 +1639,13 @@
                     <div class="mb-4">
                       <label for="etapaDescricao" class="block mb-2" style="font-size: ${fontSize}px;">Descrição *</label>
                       <textarea id="etapaDescricao" required rows="3" class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;"></textarea>
+                    </div>
+                    <div class="mb-4 rounded p-3" style="background-color: ${bgColor}; border: 1px solid ${secondaryColor};">
+                      <label class="flex items-center gap-2 cursor-pointer" style="font-size: ${fontSize * 0.95}px;">
+                        <input type="checkbox" id="solicitarFeedbackDiurno">
+                        <span>Solicitar FeedBack Diurno</span>
+                      </label>
+                      <p style="font-size: ${fontSize * 0.78}px; opacity: 0.65; margin-top: 6px;">Ao marcar, será exibido um alerta na página inicial até que uma resposta seja registrada nesta etapa.</p>
                     </div>
                     <div class="mb-4">
                       <label for="etapaUsuario" class="block mb-2" style="font-size: ${fontSize}px;">Responsável *</label>
@@ -2260,6 +2405,36 @@
           relatorioAvionicosModal.classList.remove('flex');
         });
       }
+
+      const feedbackDiurnoAlertBtn = document.getElementById('feedbackDiurnoAlertBtn');
+      const feedbackDiurnoModal = document.getElementById('feedbackDiurnoModal');
+      const closeFeedbackDiurnoBtn = document.getElementById('closeFeedbackDiurnoBtn');
+
+      if (feedbackDiurnoAlertBtn && feedbackDiurnoModal) {
+        feedbackDiurnoAlertBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          feedbackDiurnoModal.classList.remove('hidden');
+          feedbackDiurnoModal.classList.add('flex');
+        });
+      }
+
+      if (closeFeedbackDiurnoBtn && feedbackDiurnoModal) {
+        closeFeedbackDiurnoBtn.addEventListener('click', () => {
+          feedbackDiurnoModal.classList.add('hidden');
+          feedbackDiurnoModal.classList.remove('flex');
+        });
+      }
+
+      document.querySelectorAll('.feedback-diurno-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const paneId = item.dataset.paneId;
+          if (feedbackDiurnoModal) {
+            feedbackDiurnoModal.classList.add('hidden');
+            feedbackDiurnoModal.classList.remove('flex');
+          }
+          abrirPanePorFeedback(paneId);
+        });
+      });
 
       const dashboardBtn = document.getElementById('dashboardBtn');
       if (dashboardBtn) {
@@ -4170,6 +4345,74 @@
         });
       });
 
+      document.querySelectorAll('.responder-feedback-diurno-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const etapaId = btn.dataset.id;
+          const etapa = currentData.find(d => d.type === 'etapa' && d.id === etapaId);
+          if (!etapa) return;
+
+          const config = window.elementSdk?.config || defaultConfig;
+          const surfaceColor = config.surface_color || defaultConfig.surface_color;
+          const bgColor = config.background_color || defaultConfig.background_color;
+          const textColor = config.text_color || defaultConfig.text_color;
+          const primaryColor = config.primary_action || defaultConfig.primary_action;
+          const secondaryColor = config.secondary_action || defaultConfig.secondary_action;
+          const fontSize = config.font_size || defaultConfig.font_size;
+
+          const respostaModal = document.createElement('div');
+          respostaModal.className = 'fixed inset-0 flex items-center justify-center p-4';
+          respostaModal.style.cssText = 'background-color: rgba(0,0,0,0.7); z-index: 3000;';
+          respostaModal.innerHTML = `
+            <div class="w-full max-w-md rounded-lg p-6" style="background-color: ${surfaceColor}; color: ${textColor};">
+              <h3 class="font-bold mb-3" style="font-size: ${fontSize * 1.25}px;">Registrar FeedBack Diurno</h3>
+              <p style="font-size: ${fontSize * 0.9}px; opacity: 0.78; margin-bottom: 12px; line-height: 1.4;">
+                Informe o retorno para encerrar o alerta pendente desta etapa.
+              </p>
+              <textarea id="feedbackDiurnoRespostaTexto" rows="4" class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;" placeholder="Digite a resposta do feedback diurno"></textarea>
+              <div class="flex gap-3" style="margin-top: 16px;">
+                <button id="confirmFeedbackDiurnoResposta" class="flex-1 px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
+                  Salvar Resposta
+                </button>
+                <button id="cancelFeedbackDiurnoResposta" class="flex-1 px-4 py-2 rounded font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize}px;">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          `;
+
+          document.body.appendChild(respostaModal);
+
+          document.getElementById('confirmFeedbackDiurnoResposta').addEventListener('click', async () => {
+            const resposta = document.getElementById('feedbackDiurnoRespostaTexto').value.trim();
+            if (!resposta) {
+              showToast('Informe a resposta do FeedBack Diurno', 'error');
+              return;
+            }
+
+            const etapaAtualizada = {
+              ...etapa,
+              feedbackDiurnoRespondido: true,
+              feedbackDiurnoResposta: resposta,
+              feedbackDiurnoRespondidoEm: new Date().toISOString(),
+              feedbackDiurnoRespondidoPor: currentUser?.username || 'desconhecido'
+            };
+
+            const result = await window.dataSdk.update(etapaAtualizada);
+            if (result.isOk) {
+              document.body.removeChild(respostaModal);
+              showToast('FeedBack Diurno respondido com sucesso!', 'success');
+            } else {
+              showToast('Erro ao registrar FeedBack Diurno', 'error');
+            }
+          });
+
+          document.getElementById('cancelFeedbackDiurnoResposta').addEventListener('click', () => {
+            document.body.removeChild(respostaModal);
+          });
+        });
+      });
+
       const retornarProgressoBtn = document.getElementById('retornarProgressoBtn');
       if (retornarProgressoBtn) {
         retornarProgressoBtn.addEventListener('click', async () => {
@@ -4671,6 +4914,7 @@
           const etapaFoto1 = document.getElementById('etapaFoto1').value.trim() || null;
           const etapaFoto2 = document.getElementById('etapaFoto2').value.trim() || null;
           const etapaFoto3 = document.getElementById('etapaFoto3').value.trim() || null;
+          const feedbackDiurnoSolicitado = !!document.getElementById('solicitarFeedbackDiurno')?.checked;
 
           const result = await window.dataSdk.create({
             id: Date.now().toString(),
@@ -4683,6 +4927,13 @@
             etapaFoto1,
             etapaFoto2,
             etapaFoto3,
+            feedbackDiurnoSolicitado,
+            feedbackDiurnoSolicitadoEm: feedbackDiurnoSolicitado ? new Date().toISOString() : null,
+            feedbackDiurnoSolicitadoPor: feedbackDiurnoSolicitado ? currentUser.username : null,
+            feedbackDiurnoRespondido: false,
+            feedbackDiurnoResposta: null,
+            feedbackDiurnoRespondidoEm: null,
+            feedbackDiurnoRespondidoPor: null,
             criadoEm: new Date().toISOString()
           });
 
