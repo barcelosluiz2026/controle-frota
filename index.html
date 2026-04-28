@@ -309,16 +309,121 @@
       );
     }
 
+    function getFeedbackDiurnoDataSolicitacao(etapa) {
+      const raw = etapa?.feedbackDiurnoSolicitadoEm || etapa?.etapaData || etapa?.criadoEm || null;
+      const data = raw ? new Date(raw) : null;
+      if (!data || isNaN(data.getTime())) return null;
+      return data;
+    }
+
+    function getFeedbackDiurnoSlaInfo(etapa) {
+      const dataSolicitacao = getFeedbackDiurnoDataSolicitacao(etapa);
+      const agora = new Date();
+      const diffMs = dataSolicitacao ? Math.max(0, agora.getTime() - dataSolicitacao.getTime()) : 0;
+      const horas = Math.floor(diffMs / 3600000);
+      const minutos = Math.floor((diffMs % 3600000) / 60000);
+      const dias = Math.floor(horas / 24);
+      const horasRestantes = horas % 24;
+
+      let tempoTexto = '';
+      if (dias > 0) {
+        tempoTexto = `${dias} dia${dias === 1 ? '' : 's'}${horasRestantes > 0 ? ` e ${horasRestantes}h` : ''}`;
+      } else if (horas > 0) {
+        tempoTexto = `${horas}h${minutos > 0 ? ` ${minutos}min` : ''}`;
+      } else {
+        tempoTexto = `${Math.max(minutos, 1)}min`;
+      }
+
+      if (horas >= 24) {
+        return {
+          status: 'vencido',
+          label: 'SLA Vencido',
+          prioridade: 'Crítico',
+          tempoTexto,
+          horas,
+          corBorda: '#ef4444',
+          corFundo: 'rgba(239,68,68,0.16)',
+          corTexto: '#fecaca',
+          corBadgeBg: '#ef4444',
+          corBadgeTexto: '#ffffff'
+        };
+      }
+
+      if (horas >= 12) {
+        return {
+          status: 'atencao',
+          label: 'Atenção SLA',
+          prioridade: 'Atenção',
+          tempoTexto,
+          horas,
+          corBorda: '#f59e0b',
+          corFundo: 'rgba(245,158,11,0.16)',
+          corTexto: '#fde68a',
+          corBadgeBg: '#f59e0b',
+          corBadgeTexto: '#111827'
+        };
+      }
+
+      return {
+        status: 'dentro',
+        label: 'Dentro do SLA',
+        prioridade: 'Normal',
+        tempoTexto,
+        horas,
+        corBorda: '#ffffff',
+        corFundo: 'rgba(255,255,255,0.10)',
+        corTexto: '#ffffff',
+        corBadgeBg: '#ffffff',
+        corBadgeTexto: '#111827'
+      };
+    }
+
+    function getFeedbackDiurnoResumo(pendentes) {
+      const resumo = {
+        total: pendentes.length,
+        vencido: 0,
+        atencao: 0,
+        dentro: 0,
+        piorStatus: 'dentro',
+        piorLabel: 'Dentro do SLA',
+        corBorda: '#ffffff',
+        corTexto: '#111827'
+      };
+
+      pendentes.forEach(item => {
+        const status = item.sla?.status || 'dentro';
+        resumo[status] = (resumo[status] || 0) + 1;
+      });
+
+      if (resumo.vencido > 0) {
+        resumo.piorStatus = 'vencido';
+        resumo.piorLabel = `${resumo.vencido} SLA vencido${resumo.vencido === 1 ? '' : 's'}`;
+        resumo.corBorda = '#ef4444';
+        resumo.corTexto = '#991b1b';
+      } else if (resumo.atencao > 0) {
+        resumo.piorStatus = 'atencao';
+        resumo.piorLabel = `${resumo.atencao} em atenção`;
+        resumo.corBorda = '#f59e0b';
+        resumo.corTexto = '#92400e';
+      }
+
+      return resumo;
+    }
+
     function getFeedbackDiurnoPendentes() {
       return currentData
         .filter(etapaSolicitaFeedbackDiurno)
         .map(etapa => {
           const pane = currentData.find(d => d.type === 'pane' && d.id === etapa.paneId) || null;
           const aeronave = pane ? getAeronaveById(pane.aeronaveId) : null;
-          return { etapa, pane, aeronave };
+          const sla = getFeedbackDiurnoSlaInfo(etapa);
+          return { etapa, pane, aeronave, sla };
         })
         .filter(item => item.pane && item.aeronave && item.pane.paneStatus !== 'finalizada' && !isAeronaveArquivada(item.aeronave))
         .sort((a, b) => {
+          const ordem = { vencido: 0, atencao: 1, dentro: 2 };
+          const prioridade = (ordem[a.sla?.status || 'dentro'] ?? 2) - (ordem[b.sla?.status || 'dentro'] ?? 2);
+          if (prioridade !== 0) return prioridade;
           const da = new Date(a.etapa.feedbackDiurnoSolicitadoEm || a.etapa.etapaData || a.etapa.criadoEm || 0).getTime();
           const db = new Date(b.etapa.feedbackDiurnoSolicitadoEm || b.etapa.etapaData || b.etapa.criadoEm || 0).getTime();
           return da - db;
@@ -547,8 +652,9 @@
                   }).join('')}
                 </div>
                 ${feedbackPendentes.length > 0 ? `
-                  <button id="feedbackDiurnoAlertBtn" class="absolute rounded-full font-bold" style="right: 16px; bottom: 16px; background-color: #ffffff; color: #111827; padding: 8px 16px; font-size: ${fontSize * 0.82}px; animation: feedbackDiurnoPiscando 1.1s infinite; z-index: 12; border: 2px solid #f59e0b;">
-                    Aguardando FeedBack Diurno (${feedbackPendentes.length})
+                  <button id="feedbackDiurnoAlertBtn" class="absolute rounded-full font-bold" style="right: 16px; bottom: 16px; background-color: #ffffff; color: #111827; padding: 8px 16px; font-size: ${fontSize * 0.82}px; animation: feedbackDiurnoPiscando 1.1s infinite; z-index: 12; border: 2px solid ${feedbackResumo.corBorda}; box-shadow: 0 0 0 2px rgba(255,255,255,0.20), 0 6px 18px rgba(0,0,0,0.25);">
+                    <span style="display: block; line-height: 1.15; color: ${feedbackResumo.corTexto};">Aguardando FeedBack Diurno (${feedbackResumo.total})</span>
+                    <span style="display: block; line-height: 1.15; font-size: ${fontSize * 0.68}px; margin-top: 3px; color: ${feedbackResumo.corTexto}; opacity: 0.9;">${feedbackResumo.piorLabel}</span>
                   </button>
                 ` : ''}
               </div>
@@ -635,12 +741,17 @@
                 ` : `
                   <div class="space-y-3">
                     ${feedbackPendentes.map(item => `
-                      <div class="feedback-diurno-item rounded p-4 cursor-pointer" data-pane-id="${item.pane.id}" style="background-color: ${bgColor}; border-left: 4px solid #ffffff;">
+                      <div class="feedback-diurno-item rounded p-4 cursor-pointer" data-pane-id="${item.pane.id}" style="background-color: ${bgColor}; border-left: 4px solid ${item.sla.corBorda};">
                         <div class="flex justify-between gap-3 flex-wrap">
                           <div style="min-width: 0; flex: 1;">
-                            <p class="font-bold" style="font-size: ${fontSize}px; margin-bottom: 4px; color: ${textColor};">
-                              ${item.aeronave.prefixo} • ${item.aeronave.modelo} • ATA ${item.pane.paneAta || 'N/I'}
-                            </p>
+                            <div class="flex gap-2 flex-wrap items-center" style="margin-bottom: 6px;">
+                              <p class="font-bold" style="font-size: ${fontSize}px; color: ${textColor};">
+                                ${item.aeronave.prefixo} • ${item.aeronave.modelo} • ATA ${item.pane.paneAta || 'N/I'}
+                              </p>
+                              <span class="px-2 py-1 rounded-full font-bold" style="background-color: ${item.sla.corBadgeBg}; color: ${item.sla.corBadgeTexto}; font-size: ${fontSize * 0.7}px;">
+                                ${item.sla.prioridade}
+                              </span>
+                            </div>
                             <p style="font-size: ${fontSize * 0.9}px; opacity: 0.88; line-height: 1.4; color: ${textColor};">
                               ${item.pane.paneDescricao || 'Sem descrição'}
                             </p>
@@ -649,11 +760,14 @@
                               <p style="font-size: ${fontSize * 0.9}px; color: ${textColor}; line-height: 1.4;">${item.etapa.etapaDescricao || '-'}</p>
                             </div>
                           </div>
-                          <div class="text-right" style="min-width: 160px;">
-                            <span class="px-3 py-1 rounded-full font-bold" style="background-color: #ffffff; color: #111827; font-size: ${fontSize * 0.78}px; display: inline-block;">
-                              Aguardando resposta
+                          <div class="text-right" style="min-width: 178px;">
+                            <span class="px-3 py-1 rounded-full font-bold" style="background-color: ${item.sla.corBadgeBg}; color: ${item.sla.corBadgeTexto}; font-size: ${fontSize * 0.78}px; display: inline-block;">
+                              ${item.sla.label}
                             </span>
-                            <p style="font-size: ${fontSize * 0.76}px; opacity: 0.7; margin-top: 8px; color: ${textColor};">
+                            <p style="font-size: ${fontSize * 0.82}px; margin-top: 8px; color: ${item.sla.corTexto}; font-weight: 700;">
+                              ${item.sla.tempoTexto} pendente
+                            </p>
+                            <p style="font-size: ${fontSize * 0.76}px; opacity: 0.7; margin-top: 4px; color: ${textColor};">
                               ${formatarDataHoraArquivo(item.etapa.feedbackDiurnoSolicitadoEm || item.etapa.etapaData || item.etapa.criadoEm)}
                             </p>
                           </div>
@@ -1588,9 +1702,18 @@
                           <div class="rounded p-3" style="background-color: ${etapaSolicitaFeedbackDiurno(etapa) ? 'rgba(255,255,255,0.10)' : 'rgba(34,197,94,0.12)'}; border: 1px solid ${etapaSolicitaFeedbackDiurno(etapa) ? 'rgba(255,255,255,0.45)' : 'rgba(34,197,94,0.45)'}; margin: 10px 0 12px 0;">
                             <div class="flex justify-between items-start gap-3 flex-wrap">
                               <div style="min-width: 0; flex: 1;">
-                                <p class="font-bold" style="font-size: ${fontSize * 0.9}px; color: ${etapaSolicitaFeedbackDiurno(etapa) ? '#ffffff' : '#bbf7d0'};">
-                                  ${etapaSolicitaFeedbackDiurno(etapa) ? 'Aguardando FeedBack Diurno' : 'FeedBack Diurno respondido'}
-                                </p>
+                                ${etapaSolicitaFeedbackDiurno(etapa) ? (() => {
+                                  const slaEtapa = getFeedbackDiurnoSlaInfo(etapa);
+                                  return `
+                                    <div class="flex gap-2 flex-wrap items-center">
+                                      <p class="font-bold" style="font-size: ${fontSize * 0.9}px; color: ${slaEtapa.corTexto};">Aguardando FeedBack Diurno</p>
+                                      <span class="px-2 py-1 rounded-full font-bold" style="background-color: ${slaEtapa.corBadgeBg}; color: ${slaEtapa.corBadgeTexto}; font-size: ${fontSize * 0.68}px;">${slaEtapa.label}</span>
+                                      <span class="px-2 py-1 rounded-full font-bold" style="background-color: ${slaEtapa.corFundo}; color: ${slaEtapa.corTexto}; font-size: ${fontSize * 0.68}px;">${slaEtapa.tempoTexto} pendente</span>
+                                    </div>
+                                  `;
+                                })() : `
+                                  <p class="font-bold" style="font-size: ${fontSize * 0.9}px; color: #bbf7d0;">FeedBack Diurno respondido</p>
+                                `}
                                 ${etapa.feedbackDiurnoResposta ? `
                                   <p style="font-size: ${fontSize * 0.88}px; margin-top: 6px; line-height: 1.4;">${etapa.feedbackDiurnoResposta}</p>
                                   <p style="font-size: ${fontSize * 0.78}px; opacity: 0.68; margin-top: 6px;">
