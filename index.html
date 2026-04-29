@@ -1478,6 +1478,14 @@
               </div>
             ` : ''}
 
+            ${currentUser && currentUser.role === 'admin' && selectedPane.paneStatus === 'finalizada' ? `
+              <div class="mb-4 flex justify-end">
+                <button id="restaurarPaneBtn" class="px-5 py-3 rounded-lg font-semibold" style="background-color: #f59e0b; color: #111827; font-size: ${fontSize * 0.95}px;">
+                  ↩ Restaurar para status anterior
+                </button>
+              </div>
+            ` : ''}
+
             ${currentUser && currentUser.role !== 'mecanico' && selectedPane.paneStatus !== 'finalizada' ? `
               <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <button id="addEtapaBtn" class="px-6 py-3 rounded-lg font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize}px;">
@@ -4561,7 +4569,11 @@
             }
 
             const paneAtualizada = { 
-              ...selectedPane, 
+              ...selectedPane,
+              statusAnterior: selectedPane.paneStatus,
+              statusAnteriorAba: currentTab,
+              finalizadaEm: new Date().toISOString(),
+              finalizadaPor: currentUser.username,
               paneStatus: 'finalizada'
             };
             
@@ -4877,6 +4889,122 @@
           editPendenciaModal.classList.add('hidden');
           editPendenciaModal.classList.remove('flex');
           editingPendencia = null;
+        });
+      }
+
+
+      function getStatusLabelPane(status, tipo) {
+        const normalizado = String(status || '').trim();
+        const labels = {
+          lancada: 'Monitoradas',
+          em_progresso: tipo === 'avionico' ? 'Em Progresso Aviônicos' : 'Em Progresso Mecânicos',
+          aguardando_transferencia: 'Aguardando Transferência',
+          aguardando_material: 'Aguardando Material/Ferramenta',
+          finalizada: 'Finalizadas'
+        };
+        return labels[normalizado] || normalizado || 'Monitoradas';
+      }
+
+      function getAbaPorStatusPane(status, tipo) {
+        const normalizado = String(status || '').trim();
+        if (normalizado === 'em_progresso') {
+          return tipo === 'avionico' ? 'em_progresso_avi' : 'em_progresso_mec';
+        }
+        if (normalizado === 'aguardando_transferencia') return 'aguardando_transferencia';
+        if (normalizado === 'aguardando_material') return 'aguardando_material';
+        if (normalizado === 'finalizada') return 'finalizadas';
+        return 'lancadas';
+      }
+
+      const restaurarPaneBtn = document.getElementById('restaurarPaneBtn');
+      if (restaurarPaneBtn) {
+        restaurarPaneBtn.addEventListener('click', async () => {
+          if (!selectedPane || selectedPane.paneStatus !== 'finalizada' || !currentUser || currentUser.role !== 'admin') return;
+
+          const config = window.elementSdk?.config || defaultConfig;
+          const surfaceColor = config.surface_color || defaultConfig.surface_color;
+          const textColor = config.text_color || defaultConfig.text_color;
+          const secondaryColor = config.secondary_action || defaultConfig.secondary_action;
+          const fontSize = config.font_size || defaultConfig.font_size;
+
+          const statusRestaurado = selectedPane.statusAnterior || 'lancada';
+          const abaRestaurada = selectedPane.statusAnteriorAba || getAbaPorStatusPane(statusRestaurado, selectedPane.paneTipo);
+          const statusLabel = getStatusLabelPane(statusRestaurado, selectedPane.paneTipo);
+
+          const confirmRestore = document.createElement('div');
+          confirmRestore.className = 'fixed inset-0 flex items-center justify-center p-4';
+          confirmRestore.style.cssText = `background-color: rgba(0,0,0,0.7); z-index: 2000;`;
+          confirmRestore.innerHTML = `
+            <div class="w-full max-w-md rounded-lg p-6" style="background-color: ${surfaceColor};">
+              <h2 class="font-bold mb-4" style="font-size: ${fontSize * 1.5}px; color: ${textColor};">Restaurar Discrepância</h2>
+              <p style="font-size: ${fontSize}px; color: ${textColor}; margin-bottom: 18px; line-height: 1.45;">
+                Esta ação irá retirar a discrepância de <strong>Finalizadas</strong> e retornar para <strong>${statusLabel}</strong>.<br><br>
+                <strong>${selectedPane.paneDescricao}</strong>
+              </p>
+              <p style="font-size: ${fontSize * 0.86}px; color: ${textColor}; opacity: 0.75; margin-bottom: 22px;">
+                Será criada uma etapa automática registrando a restauração para manter o histórico.
+              </p>
+              <div class="flex gap-3">
+                <button id="confirmRestaurarPane" class="flex-1 px-4 py-3 rounded font-semibold" style="background-color: #f59e0b; color: #111827; font-size: ${fontSize}px;">
+                  ↩ Sim, Restaurar
+                </button>
+                <button id="cancelRestaurarPane" class="flex-1 px-4 py-3 rounded font-semibold" style="background-color: ${secondaryColor}; color: white; font-size: ${fontSize}px;">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          `;
+
+          document.body.appendChild(confirmRestore);
+
+          document.getElementById('cancelRestaurarPane').addEventListener('click', () => {
+            document.body.removeChild(confirmRestore);
+          });
+
+          document.getElementById('confirmRestaurarPane').addEventListener('click', async () => {
+            if (currentData.length >= 5000) {
+              document.body.removeChild(confirmRestore);
+              showToast('Limite de 5000 registros atingido', 'error');
+              return;
+            }
+
+            const restauradoEm = new Date().toISOString();
+            const paneAtualizada = {
+              ...selectedPane,
+              paneStatus: statusRestaurado,
+              statusRestauradoDe: 'finalizada',
+              statusRestauradoPara: statusRestaurado,
+              restauradaDeFinalizada: true,
+              restauradaEm: restauradoEm,
+              restauradaPor: currentUser.username
+            };
+
+            const result = await window.dataSdk.update(paneAtualizada);
+            if (result.isOk) {
+              await window.dataSdk.create({
+                id: `${Date.now()}_restauracao`,
+                type: 'etapa',
+                paneId: selectedPane.id,
+                etapaDescricao: `↩ Discrepância RESTAURADA pelo administrador para ${statusLabel}`,
+                etapaUsuario: currentUser.fullName,
+                etapaLoginUsuario: currentUser.username,
+                etapaData: restauradoEm,
+                etapaFoto1: null,
+                etapaFoto2: null,
+                etapaFoto3: null,
+                criadoEm: restauradoEm
+              });
+
+              selectedPane = paneAtualizada;
+              currentTab = abaRestaurada;
+              showToast(`Discrepância restaurada para ${statusLabel}!`, 'success');
+              document.body.removeChild(confirmRestore);
+              renderCurrentView();
+            } else {
+              document.body.removeChild(confirmRestore);
+              showToast('Erro ao restaurar discrepância', 'error');
+            }
+          });
         });
       }
 
