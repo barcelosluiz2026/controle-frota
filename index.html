@@ -346,6 +346,16 @@
       renderCurrentView();
     }
 
+    function normalizeTaskCardValue(value) {
+      return String(value || '').toUpperCase().replace(/[^0-9C\-]/g, '');
+    }
+
+    function isValidTaskCardValue(value, allowEmpty = false) {
+      const normalized = normalizeTaskCardValue(value);
+      const regex = allowEmpty ? /^[0-9C\-]*$/ : /^[0-9C\-]+$/;
+      return regex.test(normalized);
+    }
+
     function showToast(message, type = 'success') {
       const config = window.elementSdk?.config || defaultConfig;
       const fontSize = config.font_size || defaultConfig.font_size;
@@ -1727,8 +1737,8 @@
                     <div class="mb-4">
                       <label for="taskCard" class="block mb-2" style="font-size: ${fontSize}px;">Task Card *</label>
                       <input type="text" id="taskCard" required class="w-full px-4 py-2 rounded" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${secondaryColor}; font-size: ${fontSize}px;">
-                      <p id="taskCardError" class="hidden" style="font-size: ${fontSize * 0.8}px; color: #ef4444; margin-top: 4px;">⚠ Somente números e hífen (-) são permitidos</p>
-                      <p style="font-size: ${fontSize * 0.8}px; opacity: 0.6; margin-top: 4px;">Somente números e hífen (-)</p>
+                      <p id="taskCardError" class="hidden" style="font-size: ${fontSize * 0.8}px; color: #ef4444; margin-top: 4px;">⚠ Somente números, hífen (-) e letra C são permitidos</p>
+                      <p style="font-size: ${fontSize * 0.8}px; opacity: 0.6; margin-top: 4px;">Somente números, hífen (-) e letra C</p>
                     </div>
                     <div class="mb-4">
                       <label for="pendenciaUsuario" class="block mb-2" style="font-size: ${fontSize}px;">Responsável *</label>
@@ -4746,7 +4756,7 @@
           document.getElementById('editDescricaoMaterial').value = editingPendencia.descricaoMaterial;
           document.getElementById('editPartNumber').value = editingPendencia.partNumber;
           document.getElementById('editSms').value = editingPendencia.sms;
-          document.getElementById('editTaskCard').value = editingPendencia.taskCard;
+          document.getElementById('editTaskCard').value = normalizeTaskCardValue(editingPendencia.taskCard);
           document.getElementById('editPendenciaUsuario').value = editingPendencia.etapaUsuario;
           
           modal.classList.remove('hidden');
@@ -4852,12 +4862,27 @@
       const editPendenciaForm = document.getElementById('editPendenciaForm');
       const cancelEditPendenciaBtn = document.getElementById('cancelEditPendenciaBtn');
       const editPendenciaModal = document.getElementById('editPendenciaModal');
+      const editTaskCardInput = document.getElementById('editTaskCard');
+      if (editTaskCardInput) {
+        editTaskCardInput.addEventListener('input', (e) => {
+          e.target.value = normalizeTaskCardValue(e.target.value);
+        });
+      }
 
       if (editPendenciaForm) {
         editPendenciaForm.addEventListener('submit', async (e) => {
           e.preventDefault();
           
           if (!editingPendencia) return;
+
+          const editTaskCardEl = document.getElementById('editTaskCard');
+          const editTaskCardValue = normalizeTaskCardValue(editTaskCardEl.value);
+          editTaskCardEl.value = editTaskCardValue;
+
+          if (!isValidTaskCardValue(editTaskCardValue)) {
+            showToast('Task Card permite somente números, hífen (-) e letra C', 'error');
+            return;
+          }
 
           const pendenciaAtualizada = {
             ...editingPendencia,
@@ -4866,7 +4891,7 @@
             descricaoMaterial: document.getElementById('editDescricaoMaterial').value,
             partNumber: document.getElementById('editPartNumber').value,
             sms: document.getElementById('editSms').value,
-            taskCard: document.getElementById('editTaskCard').value,
+            taskCard: editTaskCardValue,
             etapaUsuario: document.getElementById('editPendenciaUsuario').value,
             modificadoEm: new Date().toISOString(),
             modificadoPor: currentUser.username
@@ -5113,10 +5138,11 @@
         if (taskCardInput && taskCardError) {
           taskCardInput.addEventListener('input', (e) => {
             const value = e.target.value;
-            const isValid = /^[0-9\-]*$/.test(value);
+            const normalizedValue = normalizeTaskCardValue(value);
+            const isValid = value === normalizedValue;
+            e.target.value = normalizedValue;
             
             if (!isValid) {
-              e.target.value = value.replace(/[^0-9\-]/g, '');
               taskCardError.classList.remove('hidden');
             } else {
               taskCardError.classList.add('hidden');
@@ -5141,10 +5167,12 @@
         pendenciaForm.addEventListener('submit', async (e) => {
           e.preventDefault();
           
-          const taskCardValue = document.getElementById('taskCard').value;
+          const taskCardInputEl = document.getElementById('taskCard');
+          const taskCardValue = normalizeTaskCardValue(taskCardInputEl.value);
+          taskCardInputEl.value = taskCardValue;
           const smsValue = document.getElementById('sms').value;
           
-          if (!/^[0-9\-]+$/.test(taskCardValue)) {
+          if (!isValidTaskCardValue(taskCardValue)) {
             taskCardError.classList.remove('hidden');
             return;
           }
