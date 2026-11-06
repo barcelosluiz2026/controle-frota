@@ -747,7 +747,7 @@ def cleanup_inventory():
         open_count = sum(str(p.get("paneStatus") or "").strip().lower() != "finalizada" for _, p in related)
         archived.append({"id": row.id, "prefixo": str(payload.get("prefixo") or row.id),
                          "modelo": str(payload.get("modelo") or ""), "panes": len(related),
-                         "abertas": open_count, "dependencias": sum(len(child_by_pane.get(pane.id, [])) for pane, _ in related), "elegivel": open_count == 0})
+                         "abertas": open_count, "dependencias": sum(len(child_by_pane.get(pane.id, [])) for pane, _ in related), "elegivel": True})
 
     finalized = [(row, payload) for row, payload in panes
                  if str(payload.get("paneStatus") or "").strip().lower() == "finalizada"]
@@ -782,8 +782,6 @@ def cleanup_delete():
         candidate = next((a for a in archived if a["id"] == aircraft_id), None)
         if not candidate:
             return jsonify({"error": "Aeronave não está arquivada ou não foi encontrada."}), 409
-        if not candidate["elegivel"]:
-            return jsonify({"error": "Aeronave possui panes em aberto; exclusão bloqueada."}), 409
         add(db.session.get(Record, aircraft_id))
         for pane, _ in pane_by_aircraft.get(aircraft_id, []):
             add(pane)
@@ -975,7 +973,9 @@ def index():
     for filename in candidates:
         file_path = BASE_DIR / filename
         if file_path.exists():
-            return send_from_directory(BASE_DIR, filename)
+            response = send_from_directory(BASE_DIR, filename)
+            response.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"
+            return response
     return jsonify(
         {
             "ok": True,
