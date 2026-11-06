@@ -809,8 +809,19 @@ def cleanup_delete():
                                 target_type="limpeza_administrativa", target_id=str(body.get("aeronave_id") or mode),
                                 details=f"Exclusão permanente: modo={mode}; registros={len(targets)}; IDs={','.join(targets)[:3000]}",
                                 ip_address=get_client_ip(), user_agent=request.headers.get("User-Agent", "")[:2000]))
-        for row in targets.values():
-            db.session.delete(row)
+        if mode == "panes_finalizadas":
+            # Exclusão em massa no banco: evita milhares de operações ORM
+            # individuais, que podem exceder o timeout do Gunicorn no Render.
+            # Todos os lotes integram UMA transação: falhas causam rollback total.
+            ids = list(targets)
+            for start in range(0, len(ids), 400):
+                chunk = ids[start:start + 400]
+                db.session.query(Record).filter(Record.id.in_(chunk)).delete(
+                    synchronize_session=False
+                )
+        else:
+            for row in targets.values():
+                db.session.delete(row)
         db.session.commit()
     except Exception:
         db.session.rollback()
