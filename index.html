@@ -494,9 +494,6 @@
                 ` : ''}
               </div>
               <div class="flex gap-2 flex-wrap">
-                <button id="inspecaoProgramadaBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
-                  ✅ Inspeção Programada
-                </button>
                 <button id="controleRodEndBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
                   🔧 Controle Rod End
                 </button>
@@ -509,6 +506,7 @@
                   </button>
                 ` : ''}
                 ${currentUser && currentUser.role === 'admin' ? `
+                  <button id="limpezaBancoBtn" class="px-4 py-2 rounded font-semibold" style="background-color: #92400e; color: white; font-size: ${fontSize * 0.9}px;">🗄️ Limpeza do Banco</button>
                   <button id="gerenciarUsuariosBtn" class="px-4 py-2 rounded font-semibold" style="background-color: ${primaryColor}; color: white; font-size: ${fontSize * 0.9}px;">
                     👥 Gerenciar Usuários
                   </button>
@@ -2323,13 +2321,60 @@
       }
     }
 
-    function setupHomeListeners() {
-      const inspecaoProgramadaBtn = document.getElementById('inspecaoProgramadaBtn');
-      if (inspecaoProgramadaBtn) {
-        inspecaoProgramadaBtn.addEventListener('click', () => {
-          window.open('https://aircraftcontrolsbmi.my.canva.site/inspecao-programada', '_blank', 'noopener,noreferrer');
-        });
+    async function abrirLimpezaBanco() {
+      if (currentUser?.role !== 'admin') return;
+      const senha = prompt('Confirme sua senha de administrador para acessar a limpeza do banco:');
+      if (!senha) return;
+      const headers = { 'Content-Type': 'application/json', 'X-Admin-Username': currentUser.username, 'X-Admin-Password': senha };
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:#000b;z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+      overlay.innerHTML = `<div style="background:#fff;color:#111827;width:min(850px,100%);max-height:90vh;overflow:auto;border-radius:12px;padding:24px;font:15px Arial,sans-serif">
+        <div style="display:flex;justify-content:space-between;gap:16px;align-items:center"><h2 style="font-size:22px;font-weight:bold">🗄️ Limpeza administrativa do banco</h2><button id="cleanupClose" style="font-size:25px">×</button></div>
+        <p style="color:#b45309;margin:12px 0"><strong>Atenção:</strong> exclusão permanente de aeronaves arquivadas, panes e seus registros vinculados. Faça backup do PostgreSQL antes de prosseguir.</p>
+        <div id="cleanupBody">Consultando banco...</div></div>`;
+      document.body.appendChild(overlay);
+      overlay.querySelector('#cleanupClose').onclick = () => overlay.remove();
+      const target = overlay.querySelector('#cleanupBody');
+      const escapeText = x => String(x ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      async function call(path, options={}) {
+        const response = await fetch(`${RENDER_API_BASE}/admin/cleanup/${path}`, { ...options, headers });
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(json.error || `HTTP ${response.status}`);
+        return json;
       }
+      async function refresh() {
+        target.textContent = 'Atualizando prévia...';
+        try {
+          const data = await call('preview');
+          const rows = data.arquivadas.map(a => {
+            const count = 1 + a.panes + (a.dependencias || 0);
+            return `<tr style="border-top:1px solid #ddd"><td style="padding:9px">${escapeText(a.prefixo)}<small style="display:block">${escapeText(a.modelo)}</small></td><td>${a.panes} panes (${a.abertas} abertas)</td><td>${a.elegivel ? `<button class="cleanupAircraft" data-id="${escapeText(a.id)}" data-count="${count}" style="background:#b91c1c;color:white;padding:7px;border-radius:5px">Excluir</button>` : '<strong style="color:#b45309">Bloqueada</strong>'}</td></tr>`;
+          }).join('');
+          const removiveis = data.panes_finalizadas + data.dependencias_finalizadas;
+          const porTipo = Object.entries(data.por_tipo || {}).sort((a,b)=>b[1]-a[1]).map(([tipo, qtd]) => `<span style="display:inline-block;background:#f3f4f6;border-radius:5px;padding:5px 8px;margin:3px">${escapeText(tipo)}: <strong>${qtd}</strong></span>`).join('');
+          target.innerHTML = `<section style="background:#f8fafc;border:1px solid #cbd5e1;padding:14px;border-radius:10px;margin:14px 0"><h3 style="font-weight:bold;font-size:17px">📊 Indicadores do banco</h3><div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0"><div style="flex:1;min-width:160px;background:white;padding:12px;border-radius:8px;border:1px solid #ddd"><small>Registros atuais</small><div style="font-size:26px;font-weight:bold">${data.total_registros}</div></div><div style="flex:1;min-width:160px;background:white;padding:12px;border-radius:8px;border:1px solid #ddd"><small>Elegíveis: panes finalizadas</small><div style="font-size:26px;font-weight:bold">${removiveis}</div></div><div style="flex:1;min-width:160px;background:white;padding:12px;border-radius:8px;border:1px solid #ddd"><small>Total projetado após essa limpeza</small><div style="font-size:26px;font-weight:bold">${data.total_registros-removiveis}</div></div></div><details><summary style="cursor:pointer">Registros por tipo</summary><div style="padding-top:10px">${porTipo}</div></details><p style="font-size:12px;color:#475569;margin-top:8px">Estimativa para panes finalizadas; aeronaves arquivadas podem compartilhar registros. O total real será confirmado após a exclusão.</p></section><h3 style="font-weight:bold;margin-top:16px">Aeronaves arquivadas (${data.arquivadas.length})</h3><p style="font-size:13px">Aeronaves com panes abertas não podem ser excluídas.</p><table style="width:100%;margin:12px 0"><tbody>${rows || '<tr><td>Nenhuma aeronave arquivada</td></tr>'}</tbody></table><h3 style="font-weight:bold;margin-top:20px">Panes finalizadas</h3><p>${data.panes_finalizadas} panes e ${data.dependencias_finalizadas} etapas/pendências vinculadas.</p><button id="cleanupFinalized" style="background:#b91c1c;color:white;padding:10px;border-radius:6px;margin-top:8px">Excluir panes finalizadas (${data.panes_finalizadas + data.dependencias_finalizadas} registros)</button><p style="margin-top:18px;font-size:13px">As exclusões são registradas na auditoria. Os dados removidos não podem ser restaurados sem backup.</p>`;
+          target.querySelectorAll('.cleanupAircraft').forEach(btn => btn.onclick = () => execute('aeronave_arquivada', btn.dataset.id, Number(btn.dataset.count)));
+          target.querySelector('#cleanupFinalized').onclick = () => execute('panes_finalizadas', null, data.panes_finalizadas + data.dependencias_finalizadas);
+        } catch(e) { target.textContent = `Erro: ${e.message}`; }
+      }
+      async function execute(modo, id, count) {
+        if (!count) return alert('Nenhum registro elegível.');
+        if (!confirm(`Excluir DEFINITIVAMENTE ${count} registros? Esta ação não pode ser desfeita.`)) return;
+        const typed = prompt('Digite EXCLUIR DEFINITIVAMENTE para confirmar:');
+        if (typed !== 'EXCLUIR DEFINITIVAMENTE') return;
+        try {
+          const result = await call('delete', { method:'POST', body:JSON.stringify({ modo, aeronave_id:id, quantidade_esperada:count, confirmacao:typed }) });
+          alert(`Limpeza concluída.\nAntes: ${result.total_antes} registros\nExcluídos: ${result.excluidos} registros\nDepois: ${result.total_depois} registros\n\nA contagem será atualizada.`);
+          await window.dataSdk.init({onDataChanged: data => { currentData = data; renderCurrentView(); }});
+          await refresh();
+        } catch(e) { alert(`Exclusão não realizada: ${e.message}`); await refresh(); }
+      }
+      await refresh();
+    }
+
+    function setupHomeListeners() {
+      const limpezaBtn = document.getElementById('limpezaBancoBtn');
+      if (limpezaBtn && currentUser?.role === 'admin') limpezaBtn.addEventListener('click', abrirLimpezaBanco);
 
       const controleRodEndBtn = document.getElementById('controleRodEndBtn');
       if (controleRodEndBtn) {

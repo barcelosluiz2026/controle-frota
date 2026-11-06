@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import os
+import hmac
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,10 +20,13 @@ app = Flask(__name__, static_folder=str(BASE_DIR), static_url_path="")
 def build_database_uri() -> str:
     database_url = os.getenv("DATABASE_URL", "").strip()
 
+    # O Render pode fornecer uma URL que seleciona psycopg (v3),
+    # enquanto requirements.txt instala psycopg2-binary (v2).
+    # Selecionar explicitamente o driver instalado, preservando host,
+    # credenciais, banco e parâmetros da conexão original.
     if database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql+psycopg2://", 1)
-
-    if database_url.startswith("postgresql+psycopg://"):
+    elif database_url.startswith("postgresql+psycopg://"):
         database_url = database_url.replace("postgresql+psycopg://", "postgresql+psycopg2://", 1)
     elif database_url.startswith("postgresql://"):
         database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
@@ -169,7 +173,7 @@ def pane_status_aberta(status: str) -> bool:
 
 
 def montar_ranking_panes(tipo: str | None = None, limit: int = 10):
-    records = Record.query.order_by(Record.created_at.asc(), Record.id.asc()).all()
+    records = Record.query.filter(Record.record_type.in_(["aeronave", "pane"])).order_by(Record.created_at.asc(), Record.id.asc()).all()
 
     aeronaves = {}
     panes = []
@@ -687,10 +691,160 @@ def export_audit_logs():
     logs = query.limit(5000).all()
     return build_excel_response([friendly_audit_row(log.to_dict()) for log in logs], "auditoria_acoes_formatada.xlsx", "Auditoria de Ações")
 
+
+# Usa a senha do administrador já existente no Controle Técnico.
+# A autorização é verificada no servidor, nunca apenas pela visibilidade do botão.
+def maintenance_authorized():
+    username = request.headers.get("X-Admin-Username", "").strip()
+    password = request.headers.get("X-Admin-Password", "")
+    if not username or not password:
+        return False
+    # Compatibilidade com a conta administrativa incorporada ao HTML atual.
+    if username == "admin" and hmac.compare_digest(password, "Omni0320!"):
+        return True
+    candidates = Record.query.filter(Record.record_type == "usuario").all()
+    for record in candidates:
+        try:
+            user = record.to_dict()
+            if (str(user.get("username", "")) == username
+                and str(user.get("role", "")) == "admin"
+                and hmac.compare_digest(str(user.get("password", "")), password)):
+                return True
+        except (ValueError, TypeError, json.JSONDecodeError):
+            continue
+    return False
+
+
+def cleanup_inventory():
+    """Calcula candidatos no servidor; não confia em IDs enviados pelo navegador."""
+    rows = Record.query.filter(Record.record_type.in_(["aeronave", "pane", "etapa", "pendencia"])).all()
+    aircraft, panes, children = [], [], []
+    for row in rows:
+        try:
+            payload = row.to_dict()
+        except (ValueError, json.JSONDecodeError, TypeError):
+            continue
+        kind = payload.get("type") or row.record_type
+        if kind == "aeronave":
+            aircraft.append((row, payload))
+        elif kind == "pane":
+            panes.append((row, payload))
+        elif kind in ("etapa", "pendencia"):
+            children.append((row, payload))
+
+    pane_by_aircraft = {}
+    for row, payload in panes:
+        pane_by_aircraft.setdefault(str(payload.get("aeronaveId") or ""), []).append((row, payload))
+    child_by_pane = {}
+    for row, payload in children:
+        child_by_pane.setdefault(str(payload.get("paneId") or ""), []).append(row)
+
+    archived = []
+    for row, payload in aircraft:
+        if payload.get("arquivada") is not True:
+            continue
+        related = pane_by_aircraft.get(row.id, [])
+        open_count = sum(str(p.get("paneStatus") or "").strip().lower() != "finalizada" for _, p in related)
+        archived.append({"id": row.id, "prefixo": str(payload.get("prefixo") or row.id),
+                         "modelo": str(payload.get("modelo") or ""), "panes": len(related),
+                         "abertas": open_count, "dependencias": sum(len(child_by_pane.get(pane.id, [])) for pane, _ in related), "elegivel": open_count == 0})
+
+    finalized = [(row, payload) for row, payload in panes
+                 if str(payload.get("paneStatus") or "").strip().lower() == "finalizada"]
+    return archived, finalized, pane_by_aircraft, child_by_pane
+
+
+@app.get("/api/admin/cleanup/preview")
+def cleanup_preview():
+    if not maintenance_authorized():
+        return jsonify({"error": "Acesso negado. Confirme a senha do administrador."}), 403
+    archived, finalized, _, child_by_pane = cleanup_inventory()
+    return jsonify({"arquivadas": archived, "panes_finalizadas": len(finalized),
+                    "dependencias_finalizadas": sum(len(child_by_pane.get(row.id, [])) for row, _ in finalized),
+                    "total_registros": db.session.query(db.func.count(Record.id)).scalar(),
+                    "por_tipo": {str(kind or "sem_tipo"): count for kind, count in db.session.query(Record.record_type, db.func.count(Record.id)).group_by(Record.record_type).all()}})
+
+
+@app.post("/api/admin/cleanup/delete")
+def cleanup_delete():
+    if not maintenance_authorized():
+        return jsonify({"error": "Acesso negado."}), 403
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or body.get("confirmacao") != "EXCLUIR DEFINITIVAMENTE":
+        return jsonify({"error": "Confirmação obrigatória."}), 400
+    mode = body.get("modo")
+    archived, finalized, pane_by_aircraft, child_by_pane = cleanup_inventory()
+    targets = {}
+    def add(row):
+        targets[row.id] = row
+    if mode == "aeronave_arquivada":
+        aircraft_id = str(body.get("aeronave_id") or "")
+        candidate = next((a for a in archived if a["id"] == aircraft_id), None)
+        if not candidate:
+            return jsonify({"error": "Aeronave não está arquivada ou não foi encontrada."}), 409
+        if not candidate["elegivel"]:
+            return jsonify({"error": "Aeronave possui panes em aberto; exclusão bloqueada."}), 409
+        add(db.session.get(Record, aircraft_id))
+        for pane, _ in pane_by_aircraft.get(aircraft_id, []):
+            add(pane)
+            for child in child_by_pane.get(pane.id, []):
+                add(child)
+    elif mode == "panes_finalizadas":
+        for pane, _ in finalized:
+            add(pane)
+            for child in child_by_pane.get(pane.id, []):
+                add(child)
+    else:
+        return jsonify({"error": "Modo inválido."}), 400
+
+    # Exige quantidade exata revisada no preview; evita exclusão com dados alterados.
+    expected = body.get("quantidade_esperada")
+    if type(expected) is not int or expected != len(targets):
+        return jsonify({"error": "A quantidade mudou desde a prévia. Atualize e confira antes de excluir.",
+                        "quantidade_atual": len(targets)}), 409
+    if not targets:
+        return jsonify({"error": "Nenhum registro elegível."}), 409
+    total_antes = db.session.query(db.func.count(Record.id)).scalar() or 0
+    try:
+        # Log e exclusões na mesma transação.
+        db.session.add(AuditLog(username="administrador_manutencao", action="delete", source="panes",
+                                target_type="limpeza_administrativa", target_id=str(body.get("aeronave_id") or mode),
+                                details=f"Exclusão permanente: modo={mode}; registros={len(targets)}; IDs={','.join(targets)[:3000]}",
+                                ip_address=get_client_ip(), user_agent=request.headers.get("User-Agent", "")[:2000]))
+        for row in targets.values():
+            db.session.delete(row)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Falha na limpeza administrativa")
+        return jsonify({"error": "Falha ao excluir; transação revertida."}), 500
+    total_depois = db.session.query(db.func.count(Record.id)).scalar() or 0
+    return jsonify({"isOk": True, "excluidos": len(targets), "total_antes": total_antes, "total_depois": total_depois})
+
 @app.get("/api/records")
 def list_records():
-    records = Record.query.order_by(Record.created_at.asc(), Record.id.asc()).all()
-    return jsonify([record.to_dict() for record in records])
+    # Sem parâmetros, preserva integralmente o formato esperado pelo HTML atual.
+    # Paginação e filtro por tipo são opcionais para clientes futuros.
+    query = Record.query.order_by(Record.created_at.asc(), Record.id.asc())
+    record_type = request.args.get("type", "").strip()
+    if record_type:
+        query = query.filter(Record.record_type == record_type)
+    page = request.args.get("page", type=int)
+    page_size = request.args.get("page_size", default=250, type=int)
+    if page is not None:
+        if page < 1 or page_size < 1 or page_size > 1000:
+            return jsonify({"error": "Paginação inválida: page >= 1 e 1 <= page_size <= 1000"}), 400
+        query = query.offset((page - 1) * page_size).limit(page_size)
+    return jsonify([record.to_dict() for record in query.all()])
+
+
+@app.get("/api/records/count")
+def count_records():
+    # Endpoint de diagnóstico, não altera nem exclui informações.
+    from sqlalchemy import func
+    counts = db.session.query(Record.record_type, func.count(Record.id)).group_by(Record.record_type).all()
+    return jsonify({"total": sum(count for _, count in counts),
+                    "por_tipo": {str(kind or "sem_tipo"): count for kind, count in counts}})
 
 
 @app.post("/api/records")
@@ -842,7 +996,7 @@ def is_rodend_type(value: str) -> bool:
 
 
 def get_rodend_records():
-    records = Record.query.order_by(Record.created_at.asc(), Record.id.asc()).all()
+    records = Record.query.filter(Record.record_type.in_(RODEND_ALLOWED_TYPES)).order_by(Record.created_at.asc(), Record.id.asc()).all()
     items = []
 
     for record in records:
